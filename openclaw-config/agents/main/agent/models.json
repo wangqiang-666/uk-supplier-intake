@@ -1,0 +1,295 @@
+{
+  "providers": {
+    "qwen": {
+      "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "qwen3.5-plus",
+          "name": "qwen3.5-plus",
+          "reasoning": false,
+          "input": [
+            "text",
+            "image"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1000000,
+          "maxTokens": 65536,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "qwen3-max-2026-01-23",
+          "name": "qwen3-max-2026-01-23",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 65536,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "qwen3-coder-next",
+          "name": "qwen3-coder-next",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 65536,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "qwen3-coder-plus",
+          "name": "qwen3-coder-plus",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1000000,
+          "maxTokens": 65536,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "MiniMax-M2.5",
+          "name": "MiniMax-M2.5",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1000000,
+          "maxTokens": 65536,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "glm-5",
+          "name": "glm-5",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 202752,
+          "maxTokens": 16384,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "glm-4.7",
+          "name": "glm-4.7",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 202752,
+          "maxTokens": 16384,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        },
+        {
+          "id": "kimi-k2.5",
+          "name": "kimi-k2.5",
+          "reasoning": false,
+          "input": [
+            "text",
+            "image"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        }
+      ],
+      "apiKey": "DASHSCOPE_API_KEY"
+    },
+    "dashscope": {
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "apiKey": "BSALgjQBtctXAzbBuZbX0eT1uUZJJ9y",
+      "models": [
+        {
+          "id": "qwen-plus",
+          "name": "Qwen Plus",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
+          "id": "qwen-turbo",
+          "name": "Qwen Turbo",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
+          "id": "qwen-max",
+          "name": "Qwen Max",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        }
+      ],
+      "api": "anthropic-messages"
+    },
+    "bailian": {
+      "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
+      "apiKey": "BSALgjQBtctXAzbBuZbX0eT1uUZJJ9y",
+      "models": [
+        {
+          "id": "qwen3.5-plus",
+          "name": "Qwen 3.5 Plus",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
+          "id": "qwen3-max-2026-01-23",
+          "name": "Qwen3 Max",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
+          "id": "qwen3-coder-plus",
+          "name": "Qwen3 Coder Plus",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        }
+      ],
+      "api": "anthropic-messages"
+    },
+    "aicoding": {
+      "baseUrl": "https://api.aicoding.sh",
+      "apiKey": "aicoding-445fdb5334ab537f21de74f52eadacc8",
+      "api": "anthropic-messages",
+      "headers": {
+        "User-Agent": "curl/8.0.0"
+      },
+      "models": [
+        {
+          "id": "claude-haiku-4-5",
+          "name": "Claude Haiku 4.5"
+        }
+      ]
+    }
+  }
+}

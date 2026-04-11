@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # UK 供应商 API 服务
+  uk-supplier-api:
+    build: .
+    container_name: uk-supplier-api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      # 挂载 docker.sock 以便容器内可以 docker exec openclaw-gateway openclaw message send
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+      - OPENCLAW_CONTAINER_NAME=openclaw-gateway
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+    networks:
+      - app-network
+
+  # OpenClaw AI 助手服务
+  openclaw-gateway:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw-gateway
+    ports:
+      - "18789:18789"
+      - "18790:18790"
+    volumes:
+      - ./openclaw-config:/home/node/.openclaw
+      - ./openclaw-config/workspace:/home/node/.openclaw/workspace
+      - ./openclaw-config/skills:/home/node/.openclaw/skills
+    environment:
+      - HOME=/home/node
+      - TERM=xterm-256color
+      - TZ=Asia/Shanghai
+      - DASHSCOPE_API_KEY=BSALgjQBtctXAzbBuZbX0eT1uUZJJ9y
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - uk-supplier-api
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

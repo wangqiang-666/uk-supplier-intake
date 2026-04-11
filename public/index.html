@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>英国法律服务数据 - 供应商开发系统</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", "Segoe UI", Roboto, sans-serif; background: #f5f6fa; color: #2d3436; font-size: 14px; }
+    .header { background: #fff; color:#2d3436; padding:16px 28px; border-bottom:1px solid #dfe6e9; }
+    .header h1 { font-size: 18px; font-weight: 700; color:#2d3436; }
+    .header .subtitle { font-size: 13px; font-weight: 400; color: #636e72; margin-top: 3px; }
+    .toolbar { padding: 12px 20px; background:#fff; border-bottom:1px solid #dfe6e9; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+    .toolbar input, .toolbar select { padding: 6px 10px; border: 1px solid #b2bec3; border-radius: 8px; background:#fff; font-size:13px; }
+    .toolbar input#search { min-width: 320px; }
+    .btn { padding: 7px 12px; border: none; border-radius: 8px; cursor:pointer; font-weight: 650; font-size: 13px; }
+    .btn-green { background:#00b894; color:#fff; }
+    .btn-blue { background:#0984e3; color:#fff; }
+    .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 14px 20px; }
+    .card { background:#fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .card .val { font-size: 22px; font-weight: 800; }
+    .card .lab { margin-top: 4px; font-size: 11px; color:#636e72; text-transform: uppercase; letter-spacing:0.6px; }
+    .wrap { padding: 0 20px 20px; overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    thead { background:#dfe6e9; }
+    th { padding:10px 12px; text-align:left; white-space:nowrap; cursor:pointer; user-select:none; }
+    td { padding: 8px 12px; border-top: 1px solid #f0f0f0; max-width: 420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    tr:hover td { background:#f8f9fa; }
+    .pagination { display:flex; justify-content:center; gap:8px; padding: 14px 20px; flex-wrap:wrap; }
+    .pagination button { padding: 6px 12px; border:1px solid #b2bec3; border-radius: 8px; background:#fff; cursor:pointer; }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    a { color:#0984e3; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .muted { color:#b2bec3; }
+    .work-area-tag { display:inline-block; padding:2px 6px; background:#e8f4fd; color:#0984e3; border-radius:4px; font-size:11px; margin:1px; }
+    .work-area-tag.immigration { background:#fff3e0; color:#e65100; }
+    .work-area-tag.private-client { background:#f3e5f5; color:#6a1b9a; }
+    .work-area-tag.notary { background:#e8f5e9; color:#2e7d32; }
+    .work-area-tag.language { background:#fce4ec; color:#c62828; }
+    .quality-panel { padding: 14px 20px; }
+    .quality-bar { display:inline-block; height:8px; border-radius:4px; background:#dfe6e9; width:100px; margin-left:6px; vertical-align:middle; }
+    .quality-bar-fill { height:100%; border-radius:4px; }
+    .quality-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .quality-card { background:#fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .quality-card h3 { font-size:13px; margin-bottom:8px; }
+    .quality-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:12px; }
+    .countdown-bar { display:flex; gap:16px; padding:14px 28px; background:#f8f9fa; border-bottom:1px solid #dfe6e9; flex-wrap:wrap; }
+    .countdown-item { display:flex; align-items:center; gap:10px; padding:8px 16px; border-radius:10px; background:#fff; font-size:13px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .countdown-item .cd-label { color:#636e72; font-weight:500; }
+    .countdown-item .cd-time { font-weight:700; font-size:14px; color:#2d3436; }
+    .countdown-item .cd-dot { width:10px; height:10px; border-radius:50%; }
+    .btn-gray { background:#636e72; color:#fff; }
+    .btn-red { background:#d63031; color:#fff; }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+    .settings-panel { padding: 20px; }
+    .settings-section { background:#fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .settings-section h2 { font-size: 15px; margin-bottom: 14px; color: #2d3436; border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; }
+    .form-row { display: flex; gap: 12px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+    .form-row label { min-width: 140px; font-weight: 600; color: #636e72; font-size: 13px; }
+    .form-row input[type="text"], .form-row input[type="password"], .form-row input[type="number"] { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid #b2bec3; border-radius: 6px; font-size: 13px; }
+    .pass-wrap { position: relative; flex: 1; min-width: 200px; display: flex; }
+    .pass-wrap input { flex: 1; padding-right: 36px !important; }
+    .pass-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 16px; color: #636e72; padding: 2px; }
+    .form-row input[type="checkbox"] { width: 16px; height: 16px; }
+    .status-ok { color: #00b894; font-weight: 600; }
+    .status-bad { color: #d63031; font-weight: 600; }
+    .status-warn { color: #fdcb6e; font-weight: 600; }
+    .recipients-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .recipients-table th, .recipients-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    .recipients-table th { background: #f5f6fa; color: #636e72; font-weight: 600; }
+    .recipients-table .actions { display: flex; gap: 6px; }
+    .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; border-radius: 22px; transition: 0.3s; }
+    .toggle-slider::before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+    input:checked + .toggle-slider { background: #00b894; }
+    input:checked + .toggle-slider::before { transform: translateX(18px); }
+    .msg-box { padding: 10px 14px; border-radius: 6px; margin: 10px 0; font-size: 13px; display: none; }
+    .msg-ok { background: #d4f4e8; color: #00704f; border: 1px solid #00b894; }
+    .msg-warn { background: #fff4d4; color: #805b00; border: 1px solid #fdcb6e; }
+    .msg-err { background: #ffe0e0; color: #8b0000; border: 1px solid #d63031; }
+  </style>
+</head>
+<body>
+  <div class="header" style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <h1>英国法律服务数据</h1>
+      <div class="subtitle">供应商开发系统</div>
+    </div>
+    <button class="btn btn-gray" id="btnSettings" onclick="toggleSettings()">设置</button>
+  </div>
+
+  <!-- 设置面板 -->
+  <div class="settings-panel" id="settingsPanel" style="display:none">
+    <!-- IMAP 收件邮箱配置 -->
+    <div class="settings-section">
+      <h2>IMAP 收件邮箱配置</h2>
+      <div id="imapMsg" class="msg-box"></div>
+      <input type="hidden" id="imapHost" />
+      <input type="hidden" id="imapPort" />
+      <div class="form-row"><label>用户名（邮箱）</label><input type="text" id="imapUser" placeholder="user@example.com" /></div>
+      <div class="form-row"><label>密码</label><div class="pass-wrap"><input type="password" id="imapPass" placeholder="****（留空保持不变）" /><button type="button" class="pass-toggle" onclick="togglePassVis()" title="显示/隐藏密码">👁</button></div></div>
+      <div class="form-row"><label>启用 TLS</label><input type="checkbox" id="imapTls" checked /></div>
+      <div class="form-row"><label>检查间隔（分钟）</label><input type="number" id="imapInterval" value="5" style="max-width:100px" /></div>
+      <div class="form-row"><label>连接状态</label><span id="imapStatus">加载中...</span></div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn btn-blue" onclick="saveImapConfig()">保存并重连</button>
+        <button class="btn btn-green" onclick="testImapConnection()">测试连接</button>
+      </div>
+    </div>
+
+    <!-- 通知推送负责人 -->
+    <div class="settings-section">
+      <h2>企业微信通知负责人</h2>
+      <div id="recipientMsg" class="msg-box"></div>
+      <table class="recipients-table">
+        <thead><tr><th>企微 UserID</th><th>启用</th><th>操作</th></tr></thead>
+        <tbody id="recipientBody"><tr><td colspan="3">加载中...</td></tr></tbody>
+      </table>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <input type="text" id="newUserid" placeholder="企微 UserID（如 Jacky）" style="padding:6px 10px;border:1px solid #b2bec3;border-radius:6px;font-size:13px;width:200px" />
+        <button class="btn btn-blue" onclick="addRecipient()">+ 添加</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="countdown-bar" id="countdownBar"></div>
+
+  <div class="cards">
+    <div class="card"><div class="val" id="c-orgs">-</div><div class="lab">符合条件的律所</div></div>
+    <div class="card"><div class="val" id="c-sent">-</div><div class="lab">已发送邮件</div></div>
+    <div class="card"><div class="val" id="c-unsent">-</div><div class="lab">待发送</div></div>
+  </div>
+
+  <div class="quality-panel" id="qualityPanel" style="display:none">
+    <div class="quality-grid" id="qualityGrid"></div>
+  </div>
+
+  <div class="toolbar">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label>来源 <select id="sourceSelect"><option value="">全部</option></select></label>
+      <input id="search" placeholder="搜索律所名称、城市、电话..." />
+      <label>每页显示
+        <select id="pageSize">
+          <option value="20">20</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-green" id="btnExportAll">📥 导出全部 CSV</button>
+      <button class="btn btn-blue" id="btnExportFiltered">🔍 导出筛选结果 CSV</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr id="hdr"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <div class="pagination" id="pager"></div>
+
+  <script>
+    const COLS = [
+      { key: "id", label: "ID", sortable: true },
+      { key: "source", label: "来源", sortable: true },
+      { key: "external_id", label: "编号/ID", sortable: true },
+      { key: "name", label: "律所名称", sortable: true },
+      { key: "authorisation_status", label: "执业状态", sortable: false },
+      { key: "organisation_type", label: "机构类型", sortable: false },
+      { key: "work_areas", label: "专业领域", sortable: false },
+      { key: "apostille_qualified", label: "海牙资质", sortable: true },
+      { key: "city", label: "城市", sortable: true },
+      { key: "postcode", label: "邮编", sortable: true },
+      { key: "country", label: "国家", sortable: true },
+      { key: "telephone", label: "电话", sortable: false },
+      { key: "email", label: "邮箱", sortable: false },
+      { key: "website", label: "网站", sortable: false },
+      { key: "_quality", label: "数据质量", sortable: false },
+      { key: "email_sent", label: "已发邮件", sortable: true },
+      { key: "email_sent_at", label: "发送时间", sortable: true },
+      { key: "email_send_count", label: "发送次数", sortable: true },
+      { key: "source_url", label: "来源链接", sortable: false },
+      { key: "updated_at", label: "更新时间", sortable: true },
+    ];
+
+    let state = { page: 1, pageSize: 50, sort: "id", order: "asc", search: "", source: "" };
+
+    function esc(s) {
+      if (s == null) return "";
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+    function tryJson(s) { try { return JSON.parse(s); } catch (_) { return null; } }
+
+    function getWorkAreaClass(area) {
+      const a = (area || "").toLowerCase();
+      if (a.includes("immigration") || a.includes("nationality") || a.includes("citizenship") || a.includes("签证") || a.includes("移民")) return "immigration";
+      if (a.includes("private client") || a.includes("private-client") || a.includes("probate") || a.includes("trust") || a.includes("will") || a.includes("私人")) return "private-client";
+      if (a.includes("notarial") || a.includes("aml")) return "notary";
+      if (a.startsWith("language:")) return "language";
+      return "";
+    }
+
+    function renderHdr() {
+      const tr = document.getElementById("hdr");
+      tr.innerHTML = "";
+      for (const c of COLS) {
+        const th = document.createElement("th");
+        const arrow = c.sortable ? (state.sort === c.key ? (state.order === "asc" ? " ▲" : " ▼") : " ▲") : "";
+        th.textContent = c.label + arrow;
+        if (c.sortable) {
+          th.onclick = () => {
+            if (state.sort === c.key) state.order = state.order === "asc" ? "desc" : "asc";
+            else { state.sort = c.key; state.order = "asc"; }
+            state.page = 1;
+            load();
+          };
+        } else {
+          th.style.cursor = "default";
+        }
+        tr.appendChild(th);
+      }
+    }
+
+    function sourceLabel(v) {
+      const s = String(v || "").toLowerCase();
+      if (s === "sra_api") return '<span style="background:#0984e3;color:#fff;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">SRA</span>';
+      if (s === "lawsociety_scraper") return '<span style="background:#6c5ce7;color:#fff;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">Law Soc</span>';
+      if (s === "facultyoffice") return '<span style="background:#e17055;color:#fff;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">Notary</span>';
+      return esc(v);
+    }
+
+    function cell(key, v, row) {
+      if (key === "source") return sourceLabel(v);
+      if (key === "source_url" && v) return '<a target="_blank" rel="noreferrer" href="' + esc(v) + '">查看</a>';
+      if (key === "website" && v) {
+        const href = String(v).startsWith("http") ? v : ("https://" + v);
+        return '<a target="_blank" rel="noreferrer" href="' + esc(href) + '">' + esc(v) + "</a>";
+      }
+      if (key === "work_areas" && v) {
+        const j = typeof v === "string" ? tryJson(v) : null;
+        if (Array.isArray(j)) {
+          return j.map(area => {
+            const cls = getWorkAreaClass(area);
+            return `<span class="work-area-tag ${cls}">${esc(area)}</span>`;
+          }).join("");
+        }
+        return esc(v);
+      }
+      if (key === "authorisation_status") {
+        const status = String(v || "").toUpperCase().trim();
+        if (status === "YES" || status === "AUTHORISED" || status === "PRACTISING")
+          return '<span style="color:#00b894;font-weight:600">&#10003; 执业中</span>';
+        if (status === "NO" || status === "REVOKED" || status === "SUSPENDED")
+          return '<span style="color:#d63031">&#10007; 未执业</span>';
+        if (!status)
+          return '<span style="color:#b2bec3">未知</span>';
+        return esc(v);
+      }
+      if (key === "apostille_qualified") {
+        return v == 1
+          ? '<span style="color:#00b894;font-weight:600">&#10003; 有资质</span>'
+          : '<span style="color:#b2bec3">-</span>';
+      }
+      if (key === "_quality") {
+        let score = 0, max = 0;
+        const chk = (f, w) => { max += w; if (row[f] && row[f] !== "[]" && row[f] !== "{}") score += w; };
+        chk("name", 3); chk("email", 3); chk("external_id", 2);
+        chk("postcode", 2); chk("city", 2); chk("telephone", 1);
+        chk("website", 1); chk("authorisation_status", 1);
+        // work_areas
+        max += 1;
+        const wa = typeof row.work_areas === "string" ? tryJson(row.work_areas) : null;
+        if (Array.isArray(wa) && wa.length > 0) score += 1;
+        const pct = max > 0 ? Math.round((score / max) * 100) : 0;
+        const color = pct >= 80 ? "#00b894" : pct >= 50 ? "#fdcb6e" : "#d63031";
+        return `<span style="color:${color};font-weight:600">${pct}%</span>`;
+      }
+      if (key === "email_sent") {
+        return v == 1
+          ? '<span style="color:#00b894;font-weight:600">&#10003; 已发</span>'
+          : '<span style="color:#b2bec3">未发</span>';
+      }
+      if (key === "email_sent_at" && v) {
+        const d = new Date(v);
+        return d.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+      }
+      return esc(v);
+    }
+
+    function renderRows(rows) {
+      const tbody = document.getElementById("body");
+      if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="' + COLS.length + '" style="padding:40px;text-align:center;color:#636e72">暂无数据，请先运行数据抓取</td></tr>';
+        return;
+      }
+      let html = "";
+      for (const r of rows) {
+        html += "<tr>";
+        for (const c of COLS) html += "<td>" + cell(c.key, r[c.key], r) + "</td>";
+        html += "</tr>";
+      }
+      tbody.innerHTML = html;
+    }
+
+    function renderPager(total, totalPages) {
+      const div = document.getElementById("pager");
+      if (totalPages <= 1) { div.innerHTML = '<span class="muted">共 ' + total + ' 条记录</span>'; return; }
+      div.innerHTML = "";
+      const mk = (label, p, dis) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.disabled = dis;
+        b.onclick = () => { state.page = p; load(); };
+        div.appendChild(b);
+      };
+      mk("首页", 1, state.page <= 1);
+      mk("上一页", Math.max(1, state.page - 1), state.page <= 1);
+      const info = document.createElement("span");
+      info.className = "muted";
+      info.textContent = "第 " + state.page + " / " + totalPages + " 页 (共 " + total + " 条)";
+      div.appendChild(info);
+      mk("下一页", Math.min(totalPages, state.page + 1), state.page >= totalPages);
+      mk("末页", totalPages, state.page >= totalPages);
+    }
+
+    async function loadSources() {
+      const sel = document.getElementById("sourceSelect");
+      sel.innerHTML = '<option value="">全部</option>';
+      try {
+        const res = await fetch("/api/sources");
+        const data = await res.json();
+        for (const s of data) {
+          const opt = document.createElement("option");
+          opt.value = s.code;
+          opt.textContent = (s.name || s.code) + (s.count ? (" (" + s.count + ")") : "");
+          sel.appendChild(opt);
+        }
+      } catch (_) {}
+      sel.onchange = () => { state.source = sel.value; state.page = 1; load(); loadStats(); };
+    }
+
+    async function loadQualityStats() {
+      const p = new URLSearchParams();
+      if (state.source) p.set("source", state.source);
+      try {
+        const res = await fetch("/api/quality-stats" + (p.toString() ? "?" + p : ""));
+        const data = await res.json();
+        renderQualityPanel(data);
+      } catch (e) {
+        console.error("Failed to load quality stats:", e);
+      }
+    }
+
+    function renderQualityPanel(data) {
+      const panel = document.getElementById("qualityPanel");
+      const grid = document.getElementById("qualityGrid");
+      if (!data || !data.perSource || data.perSource.length === 0) {
+        panel.style.display = "none";
+        return;
+      }
+      panel.style.display = "block";
+      grid.innerHTML = "";
+
+      for (const src of data.perSource) {
+        const card = document.createElement("div");
+        card.className = "quality-card";
+        const sourceName = src.source === "sra_api" ? "SRA" : src.source === "lawsociety_scraper" ? "Law Society" : "Faculty Office";
+        card.innerHTML = `<h3>${sourceName} (${src.total} 条)</h3>`;
+
+        const fields = [
+          ["email", "邮箱", src.has_email],
+          ["postcode", "邮编", src.has_postcode],
+          ["city", "城市", src.has_city],
+          ["telephone", "电话", src.has_telephone],
+          ["work_areas", "专业领域", src.has_work_areas],
+        ];
+
+        for (const [key, label, count] of fields) {
+          const pct = src.total > 0 ? Math.round((count / src.total) * 100) : 0;
+          const color = pct >= 80 ? "#00b894" : pct >= 50 ? "#fdcb6e" : "#d63031";
+          const row = document.createElement("div");
+          row.className = "quality-row";
+          row.innerHTML = `
+            <span>${label}</span>
+            <span>
+              <span class="quality-bar"><span class="quality-bar-fill" style="width:${pct}%;background:${color}"></span></span>
+              <span style="margin-left:6px;font-weight:600;color:${color}">${pct}%</span>
+            </span>
+          `;
+          card.appendChild(row);
+        }
+
+        grid.appendChild(card);
+      }
+    }
+
+    async function loadStats() {
+      const p = new URLSearchParams();
+      if (state.source) p.set("source", state.source);
+      const [statsRes, sentRes] = await Promise.all([
+        fetch("/api/stats" + (p.toString() ? "?" + p : "")),
+        fetch("/api/email-stats" + (p.toString() ? "?" + p : "")),
+      ]);
+      const d = await statsRes.json();
+      const ds = await sentRes.json();
+      document.getElementById("c-orgs").textContent = (d.organisations ?? "-").toLocaleString();
+      document.getElementById("c-sent").textContent = ((ds.sent ?? 0) || 0).toLocaleString();
+      document.getElementById("c-unsent").textContent = ((ds.unsent ?? 0) || 0).toLocaleString();
+
+      await loadQualityStats();
+    }
+
+    async function load() {
+      const p = new URLSearchParams();
+      p.set("page", String(state.page));
+      p.set("pageSize", String(state.pageSize));
+      p.set("sort", state.sort);
+      p.set("order", state.order);
+      if (state.source) p.set("source", state.source);
+      if (state.search && state.search.length >= 2) p.set("search", state.search);
+
+      const res = await fetch("/api/organisations?" + p.toString());
+      const data = await res.json();
+      renderHdr();
+      renderRows(data.rows || []);
+      renderPager(data.total || 0, data.totalPages || 1);
+    }
+
+    function exportUrl(includeSearch) {
+      const p = new URLSearchParams();
+      if (state.source) p.set("source", state.source);
+      if (includeSearch && state.search && state.search.length >= 2) p.set("search", state.search);
+      return "/api/export-orgs" + (p.toString() ? "?" + p.toString() : "");
+    }
+
+    document.getElementById("search").addEventListener("input", (e) => {
+      const v = e.target.value.trim();
+      state.search = v;
+      state.page = 1;
+      clearTimeout(window.__t);
+      window.__t = setTimeout(load, 300);
+    });
+    document.getElementById("pageSize").addEventListener("change", (e) => {
+      state.pageSize = Number(e.target.value) || 50;
+      state.page = 1;
+      load();
+    });
+    document.getElementById("btnExportAll").onclick = () => window.open(exportUrl(false), "_blank");
+    document.getElementById("btnExportFiltered").onclick = () => window.open(exportUrl(true), "_blank");
+
+    // 定时更新计划
+    const CRON_SCHEDULES = {
+      sra_api: { label: "SRA", interval: 7 * 24 * 3600 * 1000, day: 1, hour: 2, color: "#0984e3" },
+      lawsociety_scraper: { label: "Law Society", interval: 24 * 3600 * 1000, day: null, hour: 3, color: "#6c5ce7" },
+      facultyoffice: { label: "Faculty Office", interval: 7 * 24 * 3600 * 1000, day: 1, hour: 4, color: "#e17055" },
+    };
+
+    function getNextRunTime(lastRun, schedule) {
+      const now = new Date();
+      const next = new Date(now);
+
+      if (schedule.day !== null) {
+        // 每周任务：找下一个目标星期几
+        const targetDay = schedule.day;
+        const currentDay = now.getDay();
+        let daysUntil = (targetDay - currentDay + 7) % 7;
+
+        // 如果今天就是目标日期，检查时间是否已过
+        if (daysUntil === 0) {
+          next.setHours(schedule.hour, 0, 0, 0);
+          if (next <= now) {
+            daysUntil = 7; // 已过，下周同一天
+          }
+        }
+
+        next.setDate(now.getDate() + daysUntil);
+        next.setHours(schedule.hour, 0, 0, 0);
+      } else {
+        // 每天任务：今天或明天的目标时间
+        next.setHours(schedule.hour, 0, 0, 0);
+        if (next <= now) {
+          next.setDate(now.getDate() + 1); // 已过，明天同一时间
+        }
+      }
+
+      return next;
+    }
+
+    function formatCountdown(ms) {
+      if (ms <= 0) return "即将更新";
+      const d = Math.floor(ms / 86400000);
+      const h = Math.floor((ms % 86400000) / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      if (d > 0) return d + "天" + h + "时";
+      if (h > 0) return h + "时" + m + "分";
+      return m + "分钟";
+    }
+
+    function formatDate(d) {
+      return d.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    let countdownData = [];
+
+    async function loadCountdown() {
+      try {
+        const res = await fetch("/api/next-updates");
+        const data = await res.json();
+        countdownData = data;
+        renderCountdown();
+      } catch (e) {
+        console.error("Failed to load countdown:", e);
+      }
+    }
+
+    function renderCountdown() {
+      const bar = document.getElementById("countdownBar");
+      const now = new Date();
+      bar.innerHTML = "";
+      for (const item of countdownData) {
+        const schedule = CRON_SCHEDULES[item.source];
+        if (!schedule) continue;
+        const nextRun = getNextRunTime(item.last_run, schedule);
+        const ms = nextRun ? nextRun - now : 0;
+        const lastStr = item.last_run ? formatDate(new Date(item.last_run)) : "从未运行";
+        const nextStr = nextRun ? formatCountdown(ms) : "-";
+
+        const el = document.createElement("div");
+        el.className = "countdown-item";
+        el.innerHTML = `
+          <span class="cd-dot" style="background:${schedule.color}"></span>
+          <span class="cd-label">${schedule.label}</span>
+          <span class="cd-time" style="color:${schedule.color}">${nextStr}</span>
+          <span class="cd-label">后更新 (上次: ${lastStr})</span>
+        `;
+        bar.appendChild(el);
+      }
+    }
+
+    // 每分钟刷新倒计时
+    setInterval(renderCountdown, 60000);
+
+    // ──────── 设置面板 ────────
+
+    function toggleSettings() {
+      const panel = document.getElementById("settingsPanel");
+      const btn = document.getElementById("btnSettings");
+      if (panel.style.display === "none") {
+        panel.style.display = "block";
+        btn.textContent = "关闭设置";
+        loadImapConfig();
+        loadRecipients();
+      } else {
+        panel.style.display = "none";
+        btn.textContent = "设置";
+      }
+    }
+
+    function togglePassVis() {
+      const inp = document.getElementById("imapPass");
+      const btn = inp.nextElementSibling;
+      if (inp.type === "password") { inp.type = "text"; btn.textContent = "🙈"; }
+      else { inp.type = "password"; btn.textContent = "👁"; }
+    }
+
+    function showMsg(elId, text, type) {
+      const el = document.getElementById(elId);
+      el.textContent = text;
+      el.className = "msg-box " + (type === "ok" ? "msg-ok" : type === "warn" ? "msg-warn" : "msg-err");
+      el.style.display = "block";
+      setTimeout(() => { el.style.display = "none"; }, 6000);
+    }
+
+    async function loadImapConfig() {
+      try {
+        const res = await fetch("/api/settings/imap");
+        const c = await res.json();
+        document.getElementById("imapHost").value = c.host || "";
+        document.getElementById("imapPort").value = c.port || 993;
+        document.getElementById("imapUser").value = c.user || "";
+        document.getElementById("imapPass").value = c.pass || "";
+        document.getElementById("imapPass").type = "password";
+        document.getElementById("imapTls").checked = c.tls !== false;
+        document.getElementById("imapInterval").value = c.checkIntervalMinutes || 5;
+
+        // 加载连接状态
+        const hRes = await fetch("/api/email/health");
+        const h = await hRes.json();
+        const statusEl = document.getElementById("imapStatus");
+        if (h.imap && h.imap.connected) {
+          statusEl.innerHTML = '<span class="status-ok">已连接</span> (' + esc(h.imap.host) + ')';
+        } else if (h.imap) {
+          statusEl.innerHTML = '<span class="status-bad">未连接</span>' + (h.imap.error ? ' - ' + esc(h.imap.error) : '');
+        } else {
+          statusEl.innerHTML = '<span class="status-warn">未配置</span>';
+        }
+      } catch (e) {
+        console.error("loadImapConfig:", e);
+      }
+    }
+
+    async function saveImapConfig() {
+      const body = {
+        host: document.getElementById("imapHost").value.trim(),
+        port: Number(document.getElementById("imapPort").value) || 993,
+        user: document.getElementById("imapUser").value.trim(),
+        pass: document.getElementById("imapPass").value,
+        tls: document.getElementById("imapTls").checked,
+        checkIntervalMinutes: Number(document.getElementById("imapInterval").value) || 5,
+      };
+      if (!body.user) {
+        showMsg("imapMsg", "用户名不能为空", "err");
+        return;
+      }
+      try {
+        const res = await fetch("/api/settings/imap", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.warning) {
+          showMsg("imapMsg", data.message, "warn");
+        } else {
+          showMsg("imapMsg", data.message || "保存成功", "ok");
+        }
+        loadImapConfig();
+      } catch (e) {
+        showMsg("imapMsg", "保存失败: " + e.message, "err");
+      }
+    }
+
+    async function testImapConnection() {
+      document.getElementById("imapStatus").innerHTML = '<span class="status-warn">测试中...</span>';
+      try {
+        const hRes = await fetch("/api/email/health");
+        const h = await hRes.json();
+        const statusEl = document.getElementById("imapStatus");
+        if (h.imap && h.imap.connected) {
+          statusEl.innerHTML = '<span class="status-ok">连接成功</span> (' + esc(h.imap.host) + ')';
+          showMsg("imapMsg", "IMAP 连接正常", "ok");
+        } else {
+          statusEl.innerHTML = '<span class="status-bad">连接失败</span>' + (h.imap?.error ? ' - ' + esc(h.imap.error) : '');
+          showMsg("imapMsg", "IMAP 连接失败: " + (h.imap?.error || "未知错误"), "err");
+        }
+      } catch (e) {
+        showMsg("imapMsg", "测试失败: " + e.message, "err");
+      }
+    }
+
+    // ──────── 通知负责人管理 ────────
+
+    async function loadRecipients() {
+      try {
+        const res = await fetch("/api/settings/recipients");
+        const list = await res.json();
+        const tbody = document.getElementById("recipientBody");
+        if (!list || list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="color:#636e72">暂无负责人，请添加</td></tr>';
+          return;
+        }
+        tbody.innerHTML = list.map(r => `
+          <tr>
+            <td>${esc(r.wecom_userid)}</td>
+            <td>
+              <label class="toggle-switch">
+                <input type="checkbox" ${r.enabled ? "checked" : ""} onchange="toggleRecipient(${r.id}, this.checked)" />
+                <span class="toggle-slider"></span>
+              </label>
+            </td>
+            <td class="actions">
+              <button class="btn btn-green btn-sm" onclick="testRecipient(${r.id})">测试</button>
+              <button class="btn btn-red btn-sm" onclick="deleteRecipient(${r.id}, '${esc(r.wecom_userid)}')">删除</button>
+            </td>
+          </tr>
+        `).join("");
+      } catch (e) {
+        console.error("loadRecipients:", e);
+      }
+    }
+
+    async function addRecipient() {
+      const wecom_userid = document.getElementById("newUserid").value.trim();
+      if (!wecom_userid) {
+        showMsg("recipientMsg", "企微 UserID 不能为空", "err");
+        return;
+      }
+      try {
+        const res = await fetch("/api/settings/recipients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: wecom_userid, wecom_userid, enabled: 1 }),
+        });
+        if (res.ok) {
+          document.getElementById("newUserid").value = "";
+          showMsg("recipientMsg", wecom_userid + " 添加成功", "ok");
+          loadRecipients();
+        } else {
+          const d = await res.json();
+          showMsg("recipientMsg", d.error || "添加失败", "err");
+        }
+      } catch (e) {
+        showMsg("recipientMsg", "添加失败: " + e.message, "err");
+      }
+    }
+
+    async function toggleRecipient(id, enabled) {
+      try {
+        await fetch("/api/settings/recipients/" + id, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: enabled ? 1 : 0 }),
+        });
+      } catch (e) {
+        showMsg("recipientMsg", "操作失败: " + e.message, "err");
+        loadRecipients();
+      }
+    }
+
+    async function deleteRecipient(id, name) {
+      if (!confirm("确定要删除 " + name + " 吗？")) return;
+      try {
+        const res = await fetch("/api/settings/recipients/" + id, { method: "DELETE" });
+        if (res.ok) {
+          showMsg("recipientMsg", name + " 已删除", "ok");
+          loadRecipients();
+        } else {
+          showMsg("recipientMsg", "删除失败", "err");
+        }
+      } catch (e) {
+        showMsg("recipientMsg", "删除失败: " + e.message, "err");
+      }
+    }
+
+    async function testRecipient(id) {
+      try {
+        showMsg("recipientMsg", "发送测试中...", "warn");
+        const res = await fetch("/api/settings/recipients/" + id + "/test", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          showMsg("recipientMsg", data.message || "测试消息已发送", "ok");
+        } else {
+          showMsg("recipientMsg", "推送失败: " + (data.error || "未知错误"), "err");
+        }
+      } catch (e) {
+        showMsg("recipientMsg", "测试失败: " + e.message, "err");
+      }
+    }
+
+    (async function init() {
+      await loadSources();
+      await loadCountdown();
+      await loadStats();
+      await load();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "7d53a6958058c653b4f93f0c0b1737300c083d3898bfe09d"
+    }
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.4.5",
+    "lastTouchedAt": "2026-04-08T08:30:00.000Z"
+  },
+  "models": {
+    "providers": {
+      "aicoding": {
+        "baseUrl": "https://api.aicoding.sh",
+        "apiKey": "aicoding-445fdb5334ab537f21de74f52eadacc8",
+        "api": "anthropic-messages",
+        "headers": {"User-Agent": "curl/8.0.0"},
+        "models": [
+          {
+            "id": "claude-haiku-4-5",
+            "name": "Claude Haiku 4.5"
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "model": {
+        "primary": "aicoding/claude-haiku-4-5"
+      }
+    }
+  },
+  "channels": {
+    "wecom": {
+      "botId": "aibQ2VHkGuYF2hzTuwNhbROaGgQmGufSudk",
+      "secret": "agojT6oCxq3aBN8Jobnopxros1MGJZ47zHBWJitP5cq"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "wecom-openclaw-plugin": {
+        "enabled": true
+      }
+    },
+    "installs": {
+      "wecom-openclaw-plugin": {
+        "source": "npm",
+        "spec": "@wecom/wecom-openclaw-plugin",
+        "installPath": "/home/node/.openclaw/extensions/wecom-openclaw-plugin",
+        "version": "2026.4.3",
+        "resolvedName": "@wecom/wecom-openclaw-plugin",
+        "resolvedVersion": "2026.4.3",
+        "resolvedSpec": "@wecom/wecom-openclaw-plugin@2026.4.3",
+        "integrity": "sha512-+ppWVq+MrIctPuYv+Qy6H4T1FK0hWyT97A0M1pLPNu+kNRia1BmnuDlKPqMbkR8qy+ArtshOyau0R7L+Zg1y9w==",
+        "shasum": "10db35bfbec56b4f1792a0928d4360e67b37b0c8",
+        "resolvedAt": "2026-04-07T04:03:30.499Z",
+        "installedAt": "2026-04-07T04:03:46.667Z"
+      }
+    }
+  }
+}

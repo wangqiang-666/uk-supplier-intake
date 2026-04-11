@@ -1,0 +1,503 @@
+openapi: 3.0.0
+info:
+  title: UK Supplier Intake API
+  description: 英国法律服务供应商数据接口 - 为 OpenClaw 提供律所/律师/公证人数据查询和邮件营销功能
+  version: 1.0.0
+  contact:
+    name: UK Supplier Intake
+    url: http://localhost:3000
+
+servers:
+  - url: http://localhost:3000
+    description: 本地开发服务器
+
+tags:
+  - name: 查询
+    description: 供应商数据查询接口
+  - name: 邮件
+    description: 邮件营销相关接口
+  - name: 统计
+    description: 数据统计接口
+  - name: 导出
+    description: 数据导出接口
+
+paths:
+  /api/organisations:
+    get:
+      tags:
+        - 查询
+      summary: 搜索供应商
+      description: 按条件搜索律所/律师/公证人，支持分页、排序、筛选
+      operationId: searchOrganisations
+      parameters:
+        - name: page
+          in: query
+          description: 页码
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: pageSize
+          in: query
+          description: 每页数量
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+        - name: search
+          in: query
+          description: 搜索关键词（名称/城市/邮编/邮箱）
+          schema:
+            type: string
+        - name: source
+          in: query
+          description: 数据来源
+          schema:
+            type: string
+            enum:
+              - sra_api
+              - lawsociety_scraper
+              - facultyoffice
+        - name: sort
+          in: query
+          description: 排序字段
+          schema:
+            type: string
+            enum:
+              - id
+              - name
+              - city
+              - postcode
+              - created_at
+              - updated_at
+            default: id
+        - name: order
+          in: query
+          description: 排序方向
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+        - name: apostille_qualified
+          in: query
+          description: 海牙认证资质（1=有，0=无）
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: email_sent
+          in: query
+          description: 邮件发送状态（1=已发，0=未发）
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          description: 成功返回供应商列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organisation'
+                  total:
+                    type: integer
+                    description: 总记录数
+                  page:
+                    type: integer
+                    description: 当前页码
+                  pageSize:
+                    type: integer
+                    description: 每页数量
+
+  /api/email/action:
+    post:
+      tags:
+        - 邮件
+      summary: 邮件操作接口（核心）
+      description: |
+        统一的邮件操作接口，根据 action 参数执行不同操作：
+        - action=query: 只查询待发送列表，不修改数据库
+        - action=send: 查询并立即标记为已发送（不可逆）
+      operationId: emailAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+                - count
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - query
+                    - send
+                  description: |
+                    操作类型：
+                    - query: 只查询，不标记
+                    - send: 查询并标记为已发送
+                count:
+                  type: integer
+                  minimum: 1
+                  maximum: 200
+                  description: 需要获取的记录数
+                source:
+                  type: string
+                  enum:
+                    - sra_api
+                    - lawsociety_scraper
+                    - facultyoffice
+                  description: 可选，指定数据来源
+            examples:
+              query:
+                summary: 查询模式（不标记）
+                value:
+                  action: query
+                  count: 10
+                  source: sra_api
+              send:
+                summary: 发送模式（标记）
+                value:
+                  action: send
+                  count: 10
+                  source: sra_api
+      responses:
+        '200':
+          description: 成功返回待发送列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    type: string
+                    enum: [query, send]
+                  count:
+                    type: integer
+                    description: 返回的记录数
+                  marked_as_sent:
+                    type: boolean
+                    description: 是否已标记为已发送（仅 action=send 时为 true）
+                  rows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organisation'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "action must be 'query' or 'send'"
+
+  /api/stats:
+    get:
+      tags:
+        - 统计
+      summary: 获取总体统计
+      description: 获取供应商总数和最后一次数据采集信息
+      operationId: getStats
+      responses:
+        '200':
+          description: 成功返回统计数据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: 供应商总数
+                  lastRun:
+                    type: object
+                    properties:
+                      source:
+                        type: string
+                      started_at:
+                        type: string
+                        format: date-time
+                      finished_at:
+                        type: string
+                        format: date-time
+                      org_kept:
+                        type: integer
+
+  /api/email-stats:
+    get:
+      tags:
+        - 统计
+      summary: 获取邮件统计
+      description: 获取已发送和未发送邮件的数量
+      operationId: getEmailStats
+      responses:
+        '200':
+          description: 成功返回邮件统计
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: integer
+                    description: 已发送邮件数
+                  unsent:
+                    type: integer
+                    description: 未发送邮件数
+
+  /api/quality-stats:
+    get:
+      tags:
+        - 统计
+      summary: 获取数据质量报告
+      description: 获取各字段完整度统计
+      operationId: getQualityStats
+      parameters:
+        - name: source
+          in: query
+          description: 可选，按来源过滤
+          schema:
+            type: string
+            enum:
+              - sra_api
+              - lawsociety_scraper
+              - facultyoffice
+      responses:
+        '200':
+          description: 成功返回数据质量报告
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  perField:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        filled:
+                          type: integer
+                        total:
+                          type: integer
+                        pct:
+                          type: number
+                  perSource:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source:
+                          type: string
+                        total:
+                          type: integer
+                        fields:
+                          type: object
+
+  /api/export-orgs:
+    get:
+      tags:
+        - 导出
+      summary: 导出 CSV
+      description: 按条件导出供应商数据为 CSV 文件
+      operationId: exportOrganisations
+      parameters:
+        - name: source
+          in: query
+          description: 数据来源
+          schema:
+            type: string
+            enum:
+              - sra_api
+              - lawsociety_scraper
+              - facultyoffice
+        - name: apostille_qualified
+          in: query
+          description: 海牙认证资质
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: email_sent
+          in: query
+          description: 邮件发送状态
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          description: 成功返回 CSV 文件
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /api/sources:
+    get:
+      tags:
+        - 查询
+      summary: 查看数据源列表
+      description: 获取所有数据来源的信息
+      operationId: getSources
+      responses:
+        '200':
+          description: 成功返回数据源列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code:
+                      type: string
+                    name:
+                      type: string
+                    country:
+                      type: string
+                    website:
+                      type: string
+                    created_at:
+                      type: string
+
+  /api/runs:
+    get:
+      tags:
+        - 查询
+      summary: 查看采集历史
+      description: 获取数据采集运行记录
+      operationId: getRuns
+      parameters:
+        - name: source
+          in: query
+          description: 可选，按来源过滤
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回采集历史
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    run_id:
+                      type: string
+                    source:
+                      type: string
+                    started_at:
+                      type: string
+                    finished_at:
+                      type: string
+                    org_total:
+                      type: integer
+                    org_kept:
+                      type: integer
+                    config:
+                      type: string
+
+  /api/next-updates:
+    get:
+      tags:
+        - 查询
+      summary: 查看下次更新时间
+      description: 获取各数据源的下次更新时间和最后运行时间
+      operationId: getNextUpdates
+      responses:
+        '200':
+          description: 成功返回更新时间信息
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source:
+                      type: string
+                    label:
+                      type: string
+                    cron:
+                      type: string
+                    last_run:
+                      type: string
+
+components:
+  schemas:
+    Organisation:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 唯一标识
+        source:
+          type: string
+          description: 数据来源
+          enum:
+            - sra_api
+            - lawsociety_scraper
+            - facultyoffice
+        external_id:
+          type: string
+          description: 外部系统 ID
+        name:
+          type: string
+          description: 机构名称
+        email:
+          type: string
+          format: email
+          description: 邮箱地址
+        telephone:
+          type: string
+          description: 电话号码
+        city:
+          type: string
+          description: 城市
+        postcode:
+          type: string
+          description: 邮编
+        website:
+          type: string
+          format: uri
+          description: 网站
+        organisation_type:
+          type: string
+          description: 机构类型
+        work_areas:
+          type: string
+          description: 业务领域（JSON 数组字符串）
+        apostille_qualified:
+          type: integer
+          description: 海牙认证资质（1=有，0=无）
+          enum: [0, 1]
+        email_sent:
+          type: integer
+          description: 邮件发送状态（1=已发，0=未发）
+          enum: [0, 1]
+        email_sent_at:
+          type: string
+          format: date-time
+          description: 邮件发送时间
+        email_send_count:
+          type: integer
+          description: 邮件发送次数
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
