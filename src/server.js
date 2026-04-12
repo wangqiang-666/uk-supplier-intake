@@ -5,11 +5,12 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const path = require("node:path");
 
-const { getDb, closeDb, listSources, listRuns, getUnsentOrganisations, markOrganisationsSent, markOrganisationUnsent, insertEmailReply, getEmailReplies, getEmailReplyById, getReplyByMessageId, updateReplyReadStatus, getMonitorState, setMonitorState, matchOrgByEmail, markOrgReplied, getDailySendCount, incrementDailySendCount } = require("./db");
+const { getDb, closeDb, listSources, listRuns, getUnsentOrganisations, markOrganisationsSent, markOrganisationUnsent, insertEmailReply, getEmailReplies, getEmailReplyById, getReplyByMessageId, updateReplyReadStatus, getMonitorState, setMonitorState, matchOrgByEmail, markOrgReplied, getDailySendCount, incrementDailySendCount, nowLocal } = require("./db");
 const { startScheduler, runIngest } = require("./scheduler");
 const { sendBatch, replyToEmail, verifySmtp, isSmtpConfigured, getTestRecipients } = require("./lib/email-sender");
 const { checkForReplies, verifyImap, isImapConfigured, startImapMonitor, stopImapMonitor, getMonitorStatus } = require("./lib/email-monitor");
 const { sendToWecom, sendMessageToUser, isNotifyConfigured } = require("./lib/wecom-notifier");
+const { runAutoSend, isAutoSendRunning, getRemainingBySource } = require("./lib/auto-sender");
 const runtimeConfig = require("./lib/runtime-config");
 
 const PORT = Number(process.env.PORT || "3000");
@@ -34,7 +35,14 @@ app.get("/api/sources", (req, res) => {
 app.get("/api/runs", (req, res) => {
   const db = getDb();
   const source = req.query.source ? String(req.query.source) : undefined;
-  json(res, listRuns(db, 30, source));
+  const runs = listRuns(db, 30, source);
+  // 附带数据库实际入库总数（跨数据源去重后），防止调用方将 org_kept 加总误当作入库数
+  const totalInDb = db.prepare("SELECT COUNT(*) AS c FROM organisations").get().c;
+  json(res, {
+    runs,
+    db_total: totalInDb,
+    _note: "org_kept 是单次采集筛选保留数，不等于实际入库数。db_total 才是数据库去重后的真实总数。"
+  });
 });
 
 app.get("/api/next-updates", (req, res) => {
@@ -214,7 +222,7 @@ app.post("/api/email/action", (req, res) => {
 
   // 如果是 send 动作，标记为已发送
   if (action === "send" && rows.length > 0) {
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const now = nowLocal();
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => "?").join(",");
 
@@ -543,6 +551,55 @@ app.post("/api/settings/recipients/:id/test", async (req, res) => {
     const errMsg = (err.stderr || err.message || "").trim();
     json(res, { success: false, error: errMsg }, 500);
   }
+});
+
+// ──────────────────────────────────────────────
+// 自动邮件发送 API
+// ──────────────────────────────────────────────
+
+// GET /api/settings/autosend — 获取自动发送配置和状态
+app.get("/api/settings/autosend", (req, res) => {
+  const db = getDb();
+  json(res, {
+    enabled: runtimeConfig.getAutoSendEnabled(db),
+    dailyCount: runtimeConfig.getAutoSendDailyCount(db),
+    running: isAutoSendRunning(),
+    lastRun: runtimeConfig.getAutoSendLastRun(db),
+    todaySent: getDailySendCount(db),
+    remaining: getRemainingBySource(db),
+    dailyLimit: require("./config/email-config").email.dailyLimit,
+  });
+});
+
+// PUT /api/settings/autosend — 更新自动发送配置
+app.put("/api/settings/autosend", (req, res) => {
+  const db = getDb();
+  const { enabled, dailyCount } = req.body || {};
+
+  if (enabled !== undefined) {
+    runtimeConfig.setAutoSendEnabled(db, !!enabled);
+  }
+  if (dailyCount !== undefined) {
+    runtimeConfig.setAutoSendDailyCount(db, dailyCount);
+  }
+
+  json(res, {
+    success: true,
+    enabled: runtimeConfig.getAutoSendEnabled(db),
+    dailyCount: runtimeConfig.getAutoSendDailyCount(db),
+  });
+});
+
+// POST /api/email/auto-send/trigger — 手动触发一次自动发送
+app.post("/api/email/auto-send/trigger", async (req, res) => {
+  if (isAutoSendRunning()) {
+    return json(res, { error: "自动发送正在运行中，请稍后再试" }, 409);
+  }
+
+  const db = getDb();
+  // 手动触发时 force=true，即使开关关闭也可以执行
+  const result = await runAutoSend(db, { force: true });
+  json(res, result);
 });
 
 app.get("/api/export-orgs", (req, res) => {

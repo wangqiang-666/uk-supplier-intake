@@ -122,6 +122,44 @@
         <button class="btn btn-blue" onclick="addRecipient()">+ 添加</button>
       </div>
     </div>
+
+    <!-- 自动邮件发送 -->
+    <div class="settings-section">
+      <h2>自动邮件发送</h2>
+      <div id="autosendMsg" class="msg-box"></div>
+      <div class="form-row">
+        <label>自动发送开关</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autosendEnabled" onchange="saveAutosendConfig()" />
+          <span class="toggle-slider"></span>
+        </label>
+        <span id="autosendStatusBadge" style="margin-left:12px;font-size:12px"></span>
+      </div>
+      <div class="form-row">
+        <label>每日发送数量</label>
+        <input type="number" id="autosendDailyCount" value="100" min="1" max="500" style="max-width:100px" />
+        <button class="btn btn-blue btn-sm" onclick="saveAutosendConfig()" style="margin-left:8px">保存</button>
+      </div>
+      <div class="form-row">
+        <label>发送时间</label>
+        <span style="font-size:13px;color:#636e72">英国工作日 09:00 AM (自动处理夏令时)</span>
+      </div>
+      <div class="form-row">
+        <label>今日已发送</label>
+        <span id="autosendTodaySent" style="font-size:13px;font-weight:600">-</span>
+      </div>
+      <div class="form-row">
+        <label>上次运行</label>
+        <span id="autosendLastRun" style="font-size:13px">-</span>
+      </div>
+      <div class="form-row">
+        <label>剩余待发送</label>
+        <span id="autosendRemaining" style="font-size:13px">-</span>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn btn-green" onclick="triggerAutoSend()">手动触发一次</button>
+      </div>
+    </div>
   </div>
 
   <div class="countdown-bar" id="countdownBar"></div>
@@ -555,6 +593,7 @@
         btn.textContent = "关闭设置";
         loadImapConfig();
         loadRecipients();
+        loadAutosendConfig();
       } else {
         panel.style.display = "none";
         btn.textContent = "设置";
@@ -745,6 +784,101 @@
         }
       } catch (e) {
         showMsg("recipientMsg", "测试失败: " + e.message, "err");
+      }
+    }
+
+    // ──────── 自动发送设置 ────────
+
+    async function loadAutosendConfig() {
+      try {
+        const res = await fetch("/api/settings/autosend");
+        const d = await res.json();
+        document.getElementById("autosendEnabled").checked = d.enabled;
+        document.getElementById("autosendDailyCount").value = d.dailyCount || 100;
+
+        // 状态标记
+        const badge = document.getElementById("autosendStatusBadge");
+        if (d.running) {
+          badge.textContent = "⏳ 发送中...";
+          badge.style.color = "#e17055";
+        } else if (d.enabled) {
+          badge.textContent = "✅ 已启用";
+          badge.style.color = "#00b894";
+        } else {
+          badge.textContent = "⏸ 已关闭";
+          badge.style.color = "#636e72";
+        }
+
+        // 今日已发送
+        const todayEl = document.getElementById("autosendTodaySent");
+        todayEl.textContent = d.todaySent + " / " + (d.dailyLimit || "-") + " 封";
+
+        // 上次运行
+        const lastEl = document.getElementById("autosendLastRun");
+        if (d.lastRun && d.lastRun.finishedAt) {
+          const parts = [];
+          parts.push(d.lastRun.finishedAt);
+          if (d.lastRun.sent !== undefined) parts.push("成功 " + d.lastRun.sent + " 封");
+          if (d.lastRun.failed) parts.push("失败 " + d.lastRun.failed + " 封");
+          if (d.lastRun.skipped) parts.push("(" + (d.lastRun.reason || "跳过") + ")");
+          if (d.lastRun.error) parts.push("❌ " + d.lastRun.error);
+          lastEl.textContent = parts.join(" · ");
+        } else {
+          lastEl.textContent = "尚未运行";
+        }
+
+        // 剩余待发送
+        const remEl = document.getElementById("autosendRemaining");
+        if (d.remaining && d.remaining.total !== undefined) {
+          const srcParts = d.remaining.bySource.map(function(s) {
+            var label = s.source === "sra_api" ? "SRA"
+              : s.source === "lawsociety_scraper" ? "Law Society"
+              : s.source === "facultyoffice" ? "Faculty Office"
+              : s.source;
+            return label + " " + s.c;
+          });
+          remEl.textContent = d.remaining.total.toLocaleString() + " 封" + (srcParts.length ? " (" + srcParts.join(", ") + ")" : "");
+        } else {
+          remEl.textContent = "-";
+        }
+      } catch (e) {
+        console.error("加载自动发送配置失败:", e);
+      }
+    }
+
+    async function saveAutosendConfig() {
+      try {
+        const enabled = document.getElementById("autosendEnabled").checked;
+        const dailyCount = Number(document.getElementById("autosendDailyCount").value) || 100;
+        const res = await fetch("/api/settings/autosend", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled, dailyCount }),
+        });
+        const data = await res.json();
+        showMsg("autosendMsg", "已保存：" + (data.enabled ? "开启" : "关闭") + "，每日 " + data.dailyCount + " 封", "ok");
+        loadAutosendConfig();
+      } catch (e) {
+        showMsg("autosendMsg", "保存失败: " + e.message, "err");
+      }
+    }
+
+    async function triggerAutoSend() {
+      if (!confirm("确认手动触发一次自动发送？将立即发送邮件。")) return;
+      try {
+        showMsg("autosendMsg", "正在触发自动发送...", "warn");
+        const res = await fetch("/api/email/auto-send/trigger", { method: "POST" });
+        const data = await res.json();
+        if (data.error) {
+          showMsg("autosendMsg", data.error, "err");
+        } else if (data.skipped) {
+          showMsg("autosendMsg", "跳过: " + (data.reason || "未知原因"), "warn");
+        } else {
+          showMsg("autosendMsg", "发送完成：成功 " + (data.sent || 0) + " 封，失败 " + (data.failed || 0) + " 封", "ok");
+        }
+        loadAutosendConfig();
+      } catch (e) {
+        showMsg("autosendMsg", "触发失败: " + e.message, "err");
       }
     }
 

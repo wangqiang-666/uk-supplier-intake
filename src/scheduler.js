@@ -9,7 +9,7 @@ const path = require("node:path");
 const INGEST_SCRIPT = path.resolve(__dirname, "ingest.js");
 
 // 任务运行状态（防止重叠执行）
-const running = { sra: false, lawsociety: false, facultyoffice: false, replyCheck: false };
+const running = { sra: false, lawsociety: false, facultyoffice: false, replyCheck: false, autoSend: false };
 
 function runIngest(source) {
   if (running[source]) {
@@ -55,10 +55,30 @@ function startScheduler() {
   // Faculty Office — 每周一凌晨 4 点
   cron.schedule("0 4 * * 1", () => runIngest("facultyoffice"), { timezone: "Asia/Shanghai" });
 
-  // 邮件回复检查 — 由 email-monitor.startImapMonitor() 管理（支持热重启）
-  const { startImapMonitor } = require("./lib/email-monitor");
+  // 自动批量发送邮件 — 英国工作日 9:00 AM (Europe/London，自动处理 BST/GMT)
+  const { runAutoSend } = require("./lib/auto-sender");
   const { getDb, getMonitorState, setMonitorState, getReplyByMessageId, insertEmailReply, matchOrgByEmail, markOrgReplied } = require("./db");
   const db = getDb();
+
+  console.log("  - 自动邮件发送: 英国工作日 09:03 (Europe/London)");
+
+  cron.schedule("3 9 * * 1-5", async () => {
+    if (running.autoSend) {
+      console.log("[scheduler] 自动发送正在运行中，跳过本次");
+      return;
+    }
+    running.autoSend = true;
+    try {
+      await runAutoSend(db);
+    } catch (err) {
+      console.error("[scheduler] 自动发送异常:", err.message);
+    } finally {
+      running.autoSend = false;
+    }
+  }, { timezone: "Europe/London" });
+
+  // 邮件回复检查 — 由 email-monitor.startImapMonitor() 管理（支持热重启）
+  const { startImapMonitor } = require("./lib/email-monitor");
   const dbOps = { getMonitorState, setMonitorState, getReplyByMessageId, insertEmailReply, matchOrgByEmail, markOrgReplied };
   startImapMonitor({ db, dbOps });
 }

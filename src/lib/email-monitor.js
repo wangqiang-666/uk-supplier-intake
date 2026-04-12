@@ -10,6 +10,15 @@ const { simpleParser } = require("mailparser");
 const { notifyEmailReply, isNotifyConfigured } = require("./wecom-notifier");
 const cfg = require("../config/email-config");
 const runtimeConfig = require("./runtime-config");
+const { nowLocal } = require("../db");
+
+/**
+ * 将 Date 对象转为北京时间字符串 "YYYY-MM-DD HH:mm:ss"
+ */
+function dateToLocal(d) {
+  if (!d) return nowLocal();
+  return new Date(d).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-");
+}
 
 /**
  * 通过 HTTP 代理建立 TCP 隧道（CONNECT 方式）
@@ -182,9 +191,7 @@ async function checkForReplies(db, dbOps) {
         const fromEmail = parsed.from?.value?.[0]?.address || "";
         const subject = parsed.subject || "";
         const body = parsed.text || "";
-        const receivedAt = parsed.date
-          ? parsed.date.toISOString().replace("T", " ").slice(0, 19)
-          : new Date().toISOString().replace("T", " ").slice(0, 19);
+        const receivedAt = dateToLocal(parsed.date);
 
         if (!fromEmail) continue;
 
@@ -237,7 +244,7 @@ async function checkForReplies(db, dbOps) {
     }
 
     // 更新上次检查时间
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const now = nowLocal();
     dbOps.setMonitorState(db, "last_check_date", now);
   } catch (err) {
     errors.push(`IMAP 连接/搜索失败: ${err.message}`);

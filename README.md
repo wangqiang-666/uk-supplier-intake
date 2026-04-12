@@ -1,143 +1,169 @@
-# UK SRA Law Firm Scraper - 部署指南
+# UK Supplier Intake - 英国供应商自动化采集与触达系统
 
 ## 项目说明
 
-从英国律师监管局 (SRA) API 抓取律所数据，筛选 Immigration 和 Private Client 专业的律师，用于供应商开发。
+自动采集英国律所/公证人数据，筛选 Immigration 和 Private Client 专业领域，通过邮件自动触达，监听回复，实现供应商开发的完整闭环。
 
-## 当前状态
+## 系统架构
 
-**数据抓取方式**：手动执行 `npm run scrape`
-**服务器运行**：需要另外启动
-
-## 部署到服务器 (推荐方式)
-
-### 1. 安装依赖
-
-```bash
-npm install
+```
+定时爬取 (3个数据源)
+    ↓
+SQLite 数据库 (去重+入库)
+    ↓
+自动邮件发送 (英国工作日 09:03)
+    ↓
+IMAP 回复监听 (每分钟轮询)
+    ↓
+Web UI 管理 + 企微通知
 ```
 
-### 2. 配置环境变量
+## 数据源
 
-复制并编辑 `.env` 文件：
+| 数据源 | 方式 | 频率 | 说明 |
+|--------|------|------|------|
+| SRA (律师监管局) | API | 每周一 02:00 | 约 25000 条，筛选后 ~1800 条 |
+| Law Society | Puppeteer 爬虫 | 每天 03:00 | 每天 5 页 ~100 条，需通过 reCAPTCHA Enterprise |
+| Faculty Office | Puppeteer 爬虫 | 每周一 04:00 | 公证人数据 ~750 条 |
+
+## Docker Compose 部署 (生产方式)
+
+### 1. 配置环境变量
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 SRA_API_KEY
+# 编辑 .env，填入必要配置
 ```
 
-必需配置：
+关键配置项：
 - `SRA_API_KEY` - SRA API 订阅密钥
-- `SRA_API_URL` - API 地址（默认已配置）
+- `RESEND_API_KEY` - Resend 邮件发送 API Key
+- `IMAP_HOST` / `IMAP_USER` / `IMAP_PASS` - IMAP 收件配置
+- `EMAIL_TEST_TO` - 测试邮箱地址（设置后所有邮件发到此地址，留空则发给真实收件人）
 - `WORK_AREAS` - 筛选专业领域，默认 `Immigration,Private client`
+- `LAW_SOCIETY_PAGES_PER_DAY` - Law Society 每天爬取页数，默认 5
 
-### 3. 安装 PM2 (进程管理器)
-
-```bash
-npm install -g pm2
-```
-
-### 4. 启动服务
+### 2. 启动服务
 
 ```bash
-# 启动 API 服务器
-pm2 start ecosystem.config.js --only sra-api-server
-
-# 启动定时抓取任务（每天早上6点执行）
-pm2 start ecosystem.config.js --only sra-scraper
-
-# 查看状态
-pm2 list
-
-# 查看日志
-pm2 logs sra-api-server
-pm2 logs sra-scraper
+docker compose up -d --build
 ```
 
-### 5. 开机自启
+启动两个容器：
+
+| 容器 | 端口 | 说明 |
+|------|------|------|
+| uk-supplier-api | 3000 | 主服务（API + 定时任务 + 邮件系统） |
+| openclaw-gateway | 18789, 18790 | OpenClaw AI 助手（企微通知） |
+
+### 3. 首次数据导入
 
 ```bash
-pm2 save
-pm2 startup
-# 根据提示执行生成的命令
+docker exec uk-supplier-api npm run ingest
 ```
 
-## PM2 配置说明
-
-`ecosystem.config.js` 配置了两个进程：
-
-| 进程 | 功能 | 定时策略 |
-|------|------|----------|
-| `sra-api-server` | API 服务器 (端口 3000) | 常驻运行 |
-| `sra-scraper` | 数据抓取 | 每天 06:00 执行 |
-
-修改定时时间，编辑 `ecosystem.config.js`：
-
-```javascript
-cron_restart: '0 6 * * *'  // 每天早上6点
-// cron_restart: '0 */4 * * *'  // 每4小时执行一次
-// cron_restart: '0 9,12,15,18 * * *'  // 每天9点、12点、15点、18点执行
-```
-
-## 手动操作
+### 4. 单独采集某个数据源
 
 ```bash
-# 手动抓取数据
-npm run scrape
+# 只跑 SRA
+docker exec -e SOURCE=sra uk-supplier-api node src/ingest.js
 
-# 启动服务器（不自动抓取）
-npm start
+# 只跑 Law Society
+docker exec -e SOURCE=lawsociety uk-supplier-api node src/ingest.js
 
-# 开发模式（带热重载）
-npm run dev
+# 只跑 Faculty Office
+docker exec -e SOURCE=facultyoffice uk-supplier-api node src/ingest.js
 ```
 
-## Docker 部署
+## 定时任务调度
 
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --production
-COPY . .
-EXPOSE 3000
-CMD ["pm2-runtime", "ecosystem.config.js"]
-```
-
-构建运行：
-
-```bash
-docker build -t sra-scraper .
-docker run -d -p 3000:3000 --env-file .env sra-scraper
-```
+| 任务 | 时间 | 时区 |
+|------|------|------|
+| SRA 数据采集 | 每周一 02:00 | Asia/Shanghai |
+| Law Society 爬取 | 每天 03:00 | Asia/Shanghai |
+| Faculty Office 爬取 | 每周一 04:00 | Asia/Shanghai |
+| 自动邮件发送 | 工作日 09:03 | Europe/London |
+| IMAP 回复检查 | 每 1 分钟 | - |
 
 ## API 接口
 
 | 接口 | 说明 |
 |------|------|
-| `GET /` | Web 界面 |
-| `GET /api/stats` | 统计数据 |
-| `GET /api/organisations` | 律所列表（支持分页、搜索、排序） |
+| `GET /` | Web 管理界面 |
+| `GET /api/stats` | 数据统计 |
+| `GET /api/sources` | 数据源列表 |
+| `GET /api/organisations` | 律所列表（分页、搜索、排序） |
 | `GET /api/export-orgs` | 导出 CSV |
+| `GET /api/email-stats` | 邮件发送统计 |
+| `GET /api/email/replies` | 回复列表 |
+| `GET /api/email/reply-stats` | 回复统计 |
+| `GET /api/email/health` | SMTP/IMAP 连接状态 |
+| `POST /api/email/action` | 邮件操作（发送/标记等） |
+| `POST /api/email/send-batch` | 批量发送 |
+| `POST /api/email/check-replies` | 手动触发 IMAP 检查 |
+| `POST /api/trigger-scrape` | 手动触发爬取 |
+| `GET /api/settings/autosend` | 自动发送配置 |
+| `PUT /api/settings/autosend` | 更新自动发送配置 |
+| `GET /api/settings/imap` | IMAP 配置 |
+| `PUT /api/settings/imap` | 更新 IMAP 配置 |
 
-## 数据流向
+## 邮件系统
 
-```
-SRA API → ingest.js (抓取+筛选) → SQLite DB → server.js (API) → Web UI
-```
+- **发送**: Resend API (主) / SMTP (备)
+- **接收**: IMAP 轮询监听回复
+- **测试模式**: `.env` 中设置 `EMAIL_TEST_TO` 后所有邮件转发到测试邮箱
+- **自动发送**: 通过 Web UI 或 API 开启，英国工作日自动发送
 
-## 故障排除
+## 常用运维命令
 
 ```bash
-# 查看所有日志
-pm2 logs
+# 查看容器状态
+docker ps
 
-# 重启服务
-pm2 restart sra-api-server
+# 查看日志
+docker logs uk-supplier-api --tail 50
+docker logs openclaw-gateway --tail 50
 
-# 清理日志
-pm2 flush
+# 重启
+docker compose restart
 
-# 监控资源使用
-pm2 monit
+# 重建部署
+docker compose up -d --build
+
+# 数据库迁移
+docker exec uk-supplier-api npm run migrate
+```
+
+## Law Society 爬虫说明
+
+Law Society 使用 Google reCAPTCHA Enterprise 做浏览器验证。爬虫使用 Puppeteer + Stealth 插件，
+通过不设置 `waitUntil` 让页面自然完成验证流程（通常 10-50 秒），然后轮询检查结果。
+详见 `src/sources/lawsociety-daily.js` 中的注释。
+
+## 目录结构
+
+```
+├── docker-compose.yml    # Docker Compose 配置
+├── Dockerfile            # 主服务镜像（含 Chromium + Xvfb）
+├── ecosystem.config.js   # PM2 进程管理配置
+├── src/
+│   ├── server.js         # Express API 服务
+│   ├── ingest.js         # 数据采集入库主流程
+│   ├── scheduler.js      # 定时任务调度器
+│   ├── migrate.js        # 数据库迁移
+│   ├── sources/
+│   │   ├── sra.js              # SRA API 数据源
+│   │   ├── lawsociety-daily.js # Law Society 爬虫
+│   │   └── faculty-office.js   # Faculty Office 爬虫
+│   ├── lib/
+│   │   ├── auto-sender.js      # 自动邮件发送
+│   │   ├── email-monitor.js    # IMAP 回复监听
+│   │   └── proxy.js            # 代理支持
+│   └── db/
+│       └── index.js            # SQLite 数据库操作
+├── data/                 # SQLite 数据库文件
+├── logs/                 # 日志目录
+├── output/               # 采集报告输出
+├── public/               # Web UI 静态文件
+└── openclaw-config/      # OpenClaw 配置
 ```

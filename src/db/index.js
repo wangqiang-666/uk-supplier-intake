@@ -2,6 +2,14 @@ const Database = require("better-sqlite3");
 const path = require("node:path");
 const { initSchema } = require("./schema");
 
+/**
+ * 返回当前北京时间字符串 "YYYY-MM-DD HH:mm:ss"
+ * 统一替代 toISOString()（UTC），确保所有时间字段一致使用 Asia/Shanghai
+ */
+function nowLocal() {
+  return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-");
+}
+
 /** Repo root (uk-supplier-intake/), not process.cwd() — avoids PM2/cron opening the wrong file */
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const DEFAULT_DB_FULL = path.join(PROJECT_ROOT, "data", "supplier-intake.db");
@@ -198,7 +206,7 @@ function setMonitorState(db, key, value) {
 
 function matchOrgByEmail(db, email) {
   return db.prepare(
-    "SELECT id, name, email FROM organisations WHERE LOWER(email) = ? LIMIT 1"
+    "SELECT id, name, email, city, country, telephone, organisation_type, source, website, apostille_qualified, source_url FROM organisations WHERE LOWER(email) = ? LIMIT 1"
   ).get(email.toLowerCase());
 }
 
@@ -214,6 +222,9 @@ function getUnsentOrganisations(db, { limit = 10, source } = {}) {
   if (source) {
     conditions.push("source = ?");
     params.push(String(source));
+  } else {
+    // 自动发送时排除测试数据
+    conditions.push("source != 'e2e_test'");
   }
   const where = `WHERE ${conditions.join(" AND ")}`;
   return db.prepare(`
@@ -226,7 +237,7 @@ function getUnsentOrganisations(db, { limit = 10, source } = {}) {
 
 function markOrganisationsSent(db, ids) {
   if (!ids.length) return;
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const now = nowLocal();
   const placeholders = ids.map(() => "?").join(",");
   db.prepare(`
     UPDATE organisations
@@ -246,14 +257,14 @@ function markOrganisationUnsent(db, id) {
 }
 
 function getDailySendCount(db) {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = nowLocal().slice(0, 10); // YYYY-MM-DD (北京时间)
   const key = `daily_send_count_${today}`;
   const val = getMonitorState(db, key);
   return val ? Number(val) : 0;
 }
 
 function incrementDailySendCount(db, count = 1) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nowLocal().slice(0, 10);
   const key = `daily_send_count_${today}`;
   const current = getDailySendCount(db);
   setMonitorState(db, key, String(current + count));
@@ -284,5 +295,6 @@ module.exports = {
   markOrganisationUnsent,
   getDailySendCount,
   incrementDailySendCount,
+  nowLocal,
 };
 

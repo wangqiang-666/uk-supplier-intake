@@ -6,15 +6,15 @@
         "bytes": 1912,
         "mtimeMs": 1775642506156.3462,
         "ctimeMs": 1775642506160.3704,
-        "dev": "42",
-        "ino": "952",
+        "dev": "43",
+        "ino": "23",
         "mode": 384,
         "nlink": 1,
         "uid": 1000,
         "gid": 1000,
         "hasMeta": true,
         "gatewayMode": null,
-        "observedAt": "2026-04-10T13:36:48.778Z"
+        "observedAt": "2026-04-11T11:08:09.744Z"
       },
       "lastObservedSuspiciousSignature": null
     }

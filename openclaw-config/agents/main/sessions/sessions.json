@@ -1,7 +1,7 @@
 {
   "agent:main:main": {
     "sessionId": "a879b7c5-3d3e-4566-b3d1-dde209522baf",
-    "updatedAt": 1775873258509,
+    "updatedAt": 1775904337971,
     "systemSent": true,
     "abortedLastRun": false,
     "chatType": "direct",
@@ -12,8 +12,8 @@
     },
     "lastTo": "wecom:Jacky",
     "origin": {
-      "label": "wecom:Jacky",
-      "provider": "heartbeat",
+      "label": "user:Jacky",
+      "provider": "wecom",
       "from": "wecom:Jacky",
       "to": "wecom:Jacky",
       "surface": "wecom",
@@ -337,14 +337,14 @@
       ],
       "version": 0
     },
-    "status": "running",
-    "startedAt": 1775873198474,
+    "status": "done",
+    "startedAt": 1775904307160,
     "modelProvider": "aicoding",
     "model": "claude-haiku-4-5",
     "contextTokens": 200000,
     "systemPromptReport": {
       "source": "run",
-      "generatedAt": 1775873198453,
+      "generatedAt": 1775904307141,
       "sessionId": "a879b7c5-3d3e-4566-b3d1-dde209522baf",
       "sessionKey": "agent:main:main",
       "provider": "aicoding",
@@ -364,9 +364,9 @@
         "sandboxed": false
       },
       "systemPrompt": {
-        "chars": 25284,
+        "chars": 25341,
         "projectContextChars": 7749,
-        "nonProjectContextChars": 17535
+        "nonProjectContextChars": 17592
       },
       "injectedWorkspaceFiles": [
         {
@@ -501,7 +501,7 @@
       },
       "tools": {
         "listChars": 0,
-        "schemaChars": 18476,
+        "schemaChars": 18464,
         "entries": [
           {
             "name": "read",
@@ -542,7 +542,7 @@
           {
             "name": "message",
             "summaryChars": 89,
-            "schemaChars": 5613,
+            "schemaChars": 5601,
             "propertiesCount": 105
           },
           {
@@ -644,14 +644,17 @@
         ]
       }
     },
-    "totalTokensFresh": false,
+    "totalTokensFresh": true,
     "lastChannel": "wecom",
     "lastAccountId": "default",
     "inputTokens": 3,
-    "outputTokens": 109,
+    "outputTokens": 492,
     "cacheRead": 0,
-    "cacheWrite": 79642,
-    "estimatedCostUsd": 0
+    "cacheWrite": 85932,
+    "estimatedCostUsd": 0,
+    "totalTokens": 85935,
+    "endedAt": 1775904337943,
+    "runtimeMs": 30783
   },
   "agent:main:wecom:group:jacky": {
     "chatType": "group",
@@ -673,5 +676,25 @@
     },
     "lastChannel": "wecom",
     "sessionFile": "/home/node/.openclaw/agents/main/sessions/23b4c213-1e7c-4e21-8ed9-9ba6b2aa1070.jsonl"
+  },
+  "agent:main:wecom:group:jackyzhan": {
+    "chatType": "group",
+    "channel": "wecom",
+    "groupId": "jackyzhan",
+    "displayName": "wecom:g-jackyzhan",
+    "origin": {
+      "label": "wecom:JackyZhan",
+      "provider": "wecom",
+      "surface": "wecom",
+      "chatType": "direct",
+      "from": "wecom:JackyZhan",
+      "to": "user:JackyZhan"
+    },
+    "sessionId": "a357e605-0524-43ec-8813-31e2985b900b",
+    "updatedAt": 1775886538730,
+    "deliveryContext": {
+      "channel": "wecom"
+    },
+    "lastChannel": "wecom"
   }
 }

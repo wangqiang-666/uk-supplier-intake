@@ -119,27 +119,45 @@ async function searchSolicitorsDaily(options = {}) {
       : `${SEARCH_URL}?Page=${startPage}`;
 
     console.log(`[Daily] 访问起始页: 第 ${startPage} 页`);
-    await page.goto(startUrl, { waitUntil: "networkidle2", timeout: 30000 });
+    // =====================================================================
+    // 关键修复 (2026-04-11):
+    // Law Society 使用 Google reCAPTCHA Enterprise 做浏览器验证，流程为：
+    //   1. 页面返回 503 + reCAPTCHA JS
+    //   2. JS 自动执行 grecaptcha.enterprise.execute() 获取 token
+    //   3. JS 自动 POST token 到同一 URL
+    //   4. 服务器验证 token 分数，通过则返回 302 + fastoken cookie
+    //   5. 浏览器跟随 302 重定向，加载真正的搜索结果页
+    //
+    // 之前用 waitUntil: "networkidle2" + timeout: 30000 会在步骤 1-2 就超时，
+    // 导致验证流程被中断。
+    //
+    // 解决方案：不设 waitUntil（让页面自由完成整个验证+重定向流程），
+    // 然后轮询检查结果是否出现。整个过程通常需要 10-50 秒。
+    // =====================================================================
+    page.goto(startUrl, { timeout: 0 }).catch(() => {});
 
-    console.log(`[Daily] 等待 reCAPTCHA 验证（最多 90 秒）...`);
+    console.log(`[Daily] 等待 reCAPTCHA Enterprise 验证（最多 120 秒）...`);
 
-    // 等待验证
-    try {
-      await page.waitForSelector("section.solicitor-outer", { timeout: 90000 });
-      console.log(`[Daily] ✓ 验证通过！`);
-    } catch (e) {
-      console.log(`[Daily] 第一次等待超时，再等待 30 秒...`);
-      await new Promise(resolve => setTimeout(resolve, 30000));
-
-      const count = await page.evaluate(() => {
-        return document.querySelectorAll("section.solicitor-outer").length;
-      }).catch(() => 0);
-
-      if (count === 0) {
-        throw new Error("验证超时，请重试");
+    // 轮询等待验证通过：检查搜索结果 DOM 元素是否出现
+    const maxWait = 120000;
+    const pollInterval = 5000;
+    let waited = 0;
+    let found = false;
+    while (waited < maxWait) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      waited += pollInterval;
+      const count = await page.evaluate(() =>
+        document.querySelectorAll("section.solicitor-outer").length
+      ).catch(() => 0);
+      if (count > 0) {
+        found = true;
+        console.log(`[Daily] ✓ 验证通过！(${waited / 1000}s, ${count} 条结果)`);
+        break;
       }
+    }
 
-      console.log(`[Daily] ✓ 验证通过！`);
+    if (!found) {
+      throw new Error("验证超时，请重试");
     }
 
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -162,8 +180,21 @@ async function searchSolicitorsDaily(options = {}) {
       if (pageNum < endPage) {
         const nextUrl = `${SEARCH_URL}?Page=${pageNum + 1}`;
         console.log(`[Daily] 跳转到第 ${pageNum + 1} 页...`);
-        await page.goto(nextUrl, { waitUntil: "networkidle2", timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // 翻页同样不设 waitUntil，因为后续页也可能触发 reCAPTCHA 验证
+        page.goto(nextUrl, { timeout: 0 }).catch(() => {});
+        // 轮询等待下一页结果加载
+        let nextFound = false;
+        for (let w = 0; w < 60000; w += 5000) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          const c = await page.evaluate(() =>
+            document.querySelectorAll("section.solicitor-outer").length
+          ).catch(() => 0);
+          if (c > 0) { nextFound = true; break; }
+        }
+        if (!nextFound) {
+          console.log(`[Daily] 第 ${pageNum + 1} 页加载超时，停止翻页`);
+          break;
+        }
       }
     }
 

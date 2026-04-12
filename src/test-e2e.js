@@ -23,7 +23,7 @@
  *   node src/test-e2e.js
  *
  * 特性：
- *   - 测试数据不会清理（external_id 带 __e2e_test_ 前缀，可通过 SQL 筛选）
+ *   - 测试供应商使用固定 external_id，永久常驻数据库，真实 IMAP 回复可精准匹配
  *   - 每次运行使用新的 run_id 和时间戳
  *   - 真实邮件通过 EMAIL_TEST_TO 路由到测试邮箱，不影响生产供应商
  *   - 运行完输出 X/Y PASSED 汇总
@@ -79,13 +79,14 @@ const cfg = require("./config/email-config");
 const TS = Date.now();
 const RUN_ID = `e2e_${TS}`;
 const SOURCE = "e2e_test";
-const NOW = new Date().toISOString().replace("T", " ").slice(0, 19);
+const NOW = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-");
 
-// 每次运行使用唯一邮箱，避免与之前保留的测试数据冲突
+// 使用固定 external_id（不带时间戳），保证每次测试 upsert 同一条记录，
+// 永久测试供应商常驻数据库，真实 IMAP 回复能精准匹配到它。
 const TEST_ORGS = [
   {
     source: SOURCE,
-    external_id: `__e2e_test_org_a_${TS}`,
+    external_id: `__e2e_test_org_a`,
     name: "Mr A TestNotary (E2E Test Firm Alpha)",
     authorisation_status: "Practising",
     organisation_type: "Notary Public",
@@ -107,7 +108,7 @@ const TEST_ORGS = [
   },
   {
     source: SOURCE,
-    external_id: `__e2e_test_org_b_${TS}`,
+    external_id: `__e2e_test_org_b`,
     name: "Mrs B TestSolicitor (E2E Test Firm Beta)",
     authorisation_status: "Authorised",
     organisation_type: "Solicitor",
@@ -148,6 +149,20 @@ async function main() {
     // ════════════════════════════════════════════════
     section("Step 1: 插入测试数据");
 
+    // 清理历史遗留的带时间戳 external_id 的旧 e2e_test 记录，
+    // 只保留固定 external_id 的永久测试供应商
+    const oldIds = db.prepare(`
+      SELECT id FROM organisations
+      WHERE source = ? AND external_id LIKE '__e2e_test_org_%_%'
+      AND external_id NOT IN ('__e2e_test_org_a', '__e2e_test_org_b')
+    `).all(SOURCE).map(r => r.id);
+    if (oldIds.length > 0) {
+      const placeholders = oldIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM email_replies WHERE organisation_id IN (${placeholders})`).run(...oldIds);
+      db.prepare(`DELETE FROM organisations WHERE id IN (${placeholders})`).run(...oldIds);
+      console.log(`    🧹 清理 ${oldIds.length} 条历史重复 e2e_test 记录`);
+    }
+
     // 确保 e2e_test source 存在
     db.prepare(`
       INSERT OR IGNORE INTO sources (code, name, country, website)
@@ -171,6 +186,13 @@ async function main() {
       console.log(`    → 插入机构 id=${id}: ${org.name}`);
     }
     assert(insertedIds.length === 2, `插入 ${insertedIds.length} 条测试机构`);
+
+    // 重置测试机构的邮件状态（确保每次 E2E 测试从"未发送"开始）
+    const resetPlaceholders = insertedIds.map(() => "?").join(",");
+    db.prepare(`
+      UPDATE organisations SET email_sent = 0, email_sent_at = NULL, email_send_count = 0, reply_received = 0
+      WHERE id IN (${resetPlaceholders})
+    `).run(...insertedIds);
 
     // 完成 run
     finishRun(db, {
@@ -386,9 +408,9 @@ async function main() {
     };
 
     const notification = formatReplyNotification(fakeReply, fakeOrg);
-    assert(notification.includes("📧"), "通知包含邮件 emoji");
+    assert(notification.includes("📬"), "通知包含邮件 emoji");
     assert(notification.includes(fakeReplyEmail), "通知包含发件人地址");
-    assert(notification.includes("已匹配到供应商"), "通知包含匹配信息");
+    assert(notification.includes("已匹配供应商"), "通知包含匹配信息");
     assert(notification.includes(TEST_ORGS[0].name), "通知包含机构名称");
 
     // Mock docker exec — wecom-notifier.js 在 require 时 destructure 了 execFile，
@@ -418,7 +440,7 @@ async function main() {
       { from_email: "unknown@test.com", subject: "Hello", body: "test", received_at: NOW },
       null
     );
-    assert(unmatchedNotification.includes("未匹配到供应商"), "未匹配通知格式正确");
+    assert(unmatchedNotification.includes("未匹配"), "未匹配通知格式正确");
 
     // ════════════════════════════════════════════════
     // Step 8: API 端点验证（如果 server 在运行）
@@ -473,11 +495,18 @@ async function main() {
       }
     }
 
-    console.log(`\n  测试数据已保留:`);
-    console.log(`    Run ID: ${RUN_ID}`);
-    console.log(`    机构 IDs: ${insertedIds.join(", ")}`);
-    console.log(`    Source: ${SOURCE}`);
-    console.log(`    查询: SELECT * FROM organisations WHERE source = '${SOURCE}'`);
+    // 清理测试数据（先删子表再删主表，避免外键约束）
+    console.log(`\n  清理测试数据...`);
+    const testOrgIds = db.prepare(`SELECT id FROM organisations WHERE source = ?`).all(SOURCE).map(r => r.id);
+    if (testOrgIds.length > 0) {
+      const ph = testOrgIds.map(() => "?").join(",");
+      db.prepare(`DELETE FROM email_replies WHERE organisation_id IN (${ph})`).run(...testOrgIds);
+    }
+    db.prepare("DELETE FROM email_replies WHERE from_email = 'wangqiangcomeon@foxmail.com' AND matched = 0").run();
+    db.prepare(`DELETE FROM organisations WHERE source = ?`).run(SOURCE);
+    db.prepare(`DELETE FROM runs WHERE source = ?`).run(SOURCE);
+    db.prepare(`DELETE FROM sources WHERE code = ?`).run(SOURCE);
+    console.log(`  ✅ 已清理 source='${SOURCE}' 的所有测试记录`);
 
     console.log(`\n${"═".repeat(50)}`);
     console.log(`  ${passed}/${total} PASSED${failed > 0 ? ` (${failed} FAILED)` : ""}`);

@@ -39,35 +39,95 @@ function dockerExec(args, timeoutMs = 20000) {
 }
 
 /**
- * 格式化邮件回复为通知消息
+ * 清理邮件正文预览：剥离引用历史（Original Message 之后的内容）、
+ * 签名、多余空白，只保留真正的新回复内容
  */
-function formatReplyNotification(reply, org) {
-  const lines = [
-    `📧 收到新的邮件回复`,
-    ``,
-    `发件人: ${reply.from_email}`,
-    `主题: ${reply.subject || "(无主题)"}`,
-    `时间: ${reply.received_at}`,
-  ];
+function cleanReplyBody(body) {
+  if (!body) return "";
+  let text = String(body);
 
-  if (org) {
-    lines.push(``);
-    lines.push(`✅ 已匹配到供应商:`);
-    lines.push(`名称: ${org.name}`);
-    if (org.city) lines.push(`城市: ${org.city}`);
-    if (org.telephone) lines.push(`电话: ${org.telephone}`);
-    if (org.source) lines.push(`来源: ${org.source}`);
-  } else {
-    lines.push(``);
-    lines.push(`⚠️ 未匹配到供应商（发件人不在数据库中）`);
+  // 解码 HTML 实体
+  text = text.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+
+  // 剥离常见的引用分隔（中英文客户端）
+  const markers = [
+    /------------------\s*Original\s*------------------/i,
+    /-----Original Message-----/i,
+    /On .+ wrote:/,
+    /在 .+ 写道：/,
+    /发自我的(iPhone|华为|小米|Mi|Samsung|手机)/,
+    /Sent from my (iPhone|iPad|Android|Samsung)/i,
+    /^>.*/m,
+  ];
+  for (const re of markers) {
+    const idx = text.search(re);
+    if (idx > 0) text = text.slice(0, idx);
   }
 
-  // 正文预览（最多 300 字符）
-  const bodyPreview = (reply.body || "").replace(/\s+/g, " ").trim().slice(0, 300);
-  if (bodyPreview) {
-    lines.push(``);
-    lines.push(`正文预览:`);
-    lines.push(bodyPreview);
+  return text.replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * 格式化邮件回复为通知消息
+ */
+function formatReplyNotification(reply, org, recipients) {
+  const DIV = "━━━━━━━━━━━━━━━━━━━━";
+  const lines = [];
+
+  // 标题区：根据匹配状态用不同 emoji 和标题，一眼识别
+  if (org) {
+    lines.push(`📬 新回复 · 已匹配供应商`);
+  } else {
+    lines.push(`⚠️ 新回复 · 未匹配（陌生发件人）`);
+  }
+  lines.push(DIV);
+
+  // 供应商信息区（匹配成功时展示完整资料，方便判断是否值得回复）
+  if (org) {
+    lines.push(`🏢 供应商信息`);
+    lines.push(`  名称：${org.name || "-"}`);
+    if (org.organisation_type) lines.push(`  类型：${org.organisation_type}`);
+    const location = [org.city, org.country].filter(Boolean).join(", ");
+    if (location) lines.push(`  地区：${location}`);
+    if (org.telephone) lines.push(`  电话：${org.telephone}`);
+    if (org.website) lines.push(`  网站：${org.website}`);
+    if (org.apostille_qualified === 1) lines.push(`  资质：✓ Apostille 认证`);
+    if (org.source) lines.push(`  来源：${org.source}`);
+    if (org.source_url) lines.push(`  官方页面：${org.source_url}`);
+    lines.push(DIV);
+  }
+
+  // 邮件信息区
+  lines.push(`✉️ 邮件`);
+  lines.push(`  发件人：${reply.from_email}`);
+  lines.push(`  主题：${reply.subject || "(无主题)"}`);
+  lines.push(`  时间：${reply.received_at}`);
+
+  // 正文预览（剥离引用历史和签名，限 200 字符防企业微信截断）
+  const cleaned = cleanReplyBody(reply.body);
+  if (cleaned) {
+    lines.push(DIV);
+    lines.push(`💬 回复内容`);
+    if (cleaned.length > 200) {
+      lines.push(cleaned.slice(0, 200) + "……");
+      lines.push(`📎 内容较长，请登录邮箱查看完整回复`);
+    } else {
+      lines.push(cleaned);
+    }
+  }
+
+  // 操作提示
+  lines.push(DIV);
+  if (org) {
+    lines.push(`👉 请及时跟进回复`);
+  } else {
+    lines.push(`👉 建议人工核对发件人身份`);
+  }
+
+  // 跟进负责人（让所有人知道通知已同步给谁）
+  if (recipients && recipients.length > 0) {
+    const names = recipients.map((r) => r.name).join("、");
+    lines.push(`👥 跟进负责人：${names}`);
   }
 
   return lines.join("\n");
@@ -129,8 +189,77 @@ async function sendToWecom(db, message) {
  * @param {object|null} org - 匹配的供应商（可选）
  */
 async function notifyEmailReply(db, reply, org) {
-  const message = formatReplyNotification(reply, org);
+  const recipients = runtimeConfig.getEnabledRecipients(db);
+  const message = formatReplyNotification(reply, org, recipients);
   return sendToWecom(db, message);
+}
+
+/**
+ * 格式化自动发送日报通知
+ */
+function formatAutoSendReport(stats) {
+  const DIV = "━━━━━━━━━━━━━━━━━━━━";
+  const elapsed = stats.elapsedMs >= 60000
+    ? `${Math.floor(stats.elapsedMs / 60000)} 分 ${Math.floor((stats.elapsedMs % 60000) / 1000)} 秒`
+    : `${(stats.elapsedMs / 1000).toFixed(1)} 秒`;
+  const rate = stats.sent + stats.failed > 0
+    ? Math.round(stats.successRate * 100)
+    : 0;
+
+  const lines = [
+    `📤 每日邮件发送报告`,
+    DIV,
+    `📊 发送统计`,
+    `  目标：${stats.targetCount} 封`,
+    `  成功：${stats.sent} 封 ✓`,
+    `  失败：${stats.failed} 封 ✗`,
+    `  成功率：${rate}%`,
+    `  耗时：${elapsed}`,
+  ];
+
+  if (stats.testMode) {
+    lines.push(`  模式：🧪 测试模式（邮件发到测试邮箱）`);
+  }
+
+  if (stats.remaining) {
+    lines.push(DIV);
+    lines.push(`📋 剩余待发送`);
+    for (const src of stats.remaining.bySource) {
+      const label = src.source === "sra_api" ? "SRA"
+        : src.source === "lawsociety_scraper" ? "Law Society"
+        : src.source === "facultyoffice" ? "Faculty Office"
+        : src.source;
+      lines.push(`  ${label}：${src.c.toLocaleString()} 封`);
+    }
+    lines.push(`  合计：${stats.remaining.total.toLocaleString()} 封`);
+  }
+
+  lines.push(DIV);
+  lines.push(`⏰ 下次发送：下个工作日 9:00 AM (UK)`);
+
+  return lines.join("\n");
+}
+
+/**
+ * 格式化自动发送异常报警
+ */
+function formatAutoSendAlert(stats) {
+  const rate = Math.round((stats.successRate || 0) * 100);
+  const lines = [
+    `🚨 邮件发送异常警报`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `成功率仅 ${rate}%，请检查邮件服务状态！`,
+  ];
+
+  if (stats.failures && stats.failures.length > 0) {
+    lines.push(``);
+    lines.push(`失败详情：`);
+    for (const f of stats.failures) {
+      lines.push(`  - #${f.id} ${f.email}: ${f.error}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 module.exports = {
@@ -139,4 +268,6 @@ module.exports = {
   sendMessageToUser,
   isNotifyConfigured,
   formatReplyNotification,
+  formatAutoSendReport,
+  formatAutoSendAlert,
 };

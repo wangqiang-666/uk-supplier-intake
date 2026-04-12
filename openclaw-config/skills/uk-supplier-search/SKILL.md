@@ -11,7 +11,41 @@ metadata:
 
 API 基地址：`http://uk-supplier-api:3000`
 
-数据库包含 **2500+** 条英国律所和公证处数据，来自 3 个数据源（SRA、Law Society、Faculty Office），每天自动更新。
+数据库包含英国律所和公证处数据，来自 3 个数据源（SRA、Law Society、Faculty Office），每天自动更新。
+
+---
+
+## ⚠️ 数据回复规范（必须严格遵守）
+
+### 核心原则
+1. **所有数字必须来自 API 查询结果**，严禁自行推算、加总或估算
+2. **区分"采集扫描数"和"实际入库数"**：
+   - `/api/runs` 中的 `org_total` = 数据源扫描的原始总数
+   - `/api/runs` 中的 `org_kept` = 筛选后保留的数量（如只保留 Immigration/Private client 领域）
+   - `org_kept` **不等于新增入库数**，因为入库时还有去重（同一律所可能出现在多个数据源）
+   - **数据库实际入库总数**必须通过 `/api/stats` 的 `organisations` 字段获取
+3. **不同数据源的 org_kept 不能简单加总来代表入库总数**
+
+### 回复采集相关问题时
+- 必须同时调用 `/api/runs` 和 `/api/stats` 两个接口
+- 采集结果表格中：用"扫描数"表示 `org_total`，用"筛选保留"表示 `org_kept`
+- 表格下方必须补充说明："数据库当前实际入库 X 条（经跨数据源去重）"，X 来自 `/api/stats` 的 `organisations`
+- 如果某次采集 `org_kept = 0`，状态标注为"❌ 失败"
+
+### 回复统计相关问题时
+- 供应商总数必须来自 `/api/stats` 的 `organisations` 字段
+- 各数据源分别有多少条，使用 `/api/stats?source=xxx` 分别查询
+- 数据质量必须来自 `/api/quality-stats` 的实际百分比
+
+### 回复邮件相关问题时
+- 已发送/未发送数量必须来自 `/api/email-stats` 的 `sent`/`unsent` 字段
+- 回复信息必须来自 `/api/email/replies` 和 `/api/email/reply-stats`
+
+### 禁止的回复行为
+- ❌ 不要把 `org_kept` 说成"新增"或"入库"，应说"采集保留"或"筛选通过"
+- ❌ 不要把多个数据源的 `org_kept` 加总后说"总计新增 X 条"
+- ❌ 不要使用"约"、"大概"等模糊词汇修饰从 API 获取的精确数字
+- ❌ 不要在没有调用对应 API 的情况下回答数字类问题
 
 ---
 
@@ -86,7 +120,11 @@ curl -s "http://uk-supplier-api:3000/api/runs"
 # 可按数据源筛选：
 curl -s "http://uk-supplier-api:3000/api/runs?source=lawsociety_scraper"
 ```
-返回最近 30 次采集记录，含 run_id、source、started_at、finished_at、org_total、org_kept
+返回最近 30 次采集记录，字段含义：
+- `org_total` — 数据源扫描的**原始总数**（如 SRA 全量 25000+ 条）
+- `org_kept` — 按业务领域筛选后**保留的数量**（如只保留 Immigration/Private client）
+- ⚠️ `org_kept` 不代表实际新增入库数（入库还会跨数据源去重）
+- 要获取数据库真实总数，必须额外调用 `/api/stats`
 
 ### 8. 下次更新时间
 ```bash
@@ -124,6 +162,18 @@ curl -s -X POST "http://uk-supplier-api:3000/api/email/action" \
   -d '{"action": "query", "count": 10, "source": "sra_api"}'
 ```
 
+### 11. 邮件回复列表
+```bash
+curl -s "http://uk-supplier-api:3000/api/email/replies"
+```
+返回所有收到的邮件回复，含 from_email、subject、body、received_at、matched（是否匹配到供应商）
+
+### 12. 邮件回复统计
+```bash
+curl -s "http://uk-supplier-api:3000/api/email/reply-stats"
+```
+返回回复总数、已匹配数、未匹配数
+
 ---
 
 ## 五、导出
@@ -155,9 +205,12 @@ curl -s "http://uk-supplier-api:3000/api/export-orgs?source=sra_api&search=londo
 | 有多少供应商 | /api/stats |
 | 数据质量怎么样 | /api/quality-stats |
 | 邮件发了多少 | /api/email-stats |
-| 最近采集情况 | /api/runs + /api/next-updates |
+| 最近采集情况 | /api/runs **+** /api/stats（必须同时调用） |
+| 今天爬取了多少 | /api/runs **+** /api/stats（必须同时调用） |
 | 手动抓一下 Law Society | POST /api/trigger-scrape |
 | 帮我找公证人 | /api/organisations?search=notary 或 source=facultyoffice |
 | 查下SRA的数据 | /api/organisations?source=sra_api |
 | 导出所有数据 | /api/export-orgs |
 | 取10个未发邮件的 | POST /api/email/action {query, 10} |
+| 有人回复邮件吗 | /api/email/replies + /api/email/reply-stats |
+| 回复了多少封 | /api/email/reply-stats |

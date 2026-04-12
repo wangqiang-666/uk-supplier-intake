@@ -110,6 +110,47 @@ function deleteRecipient(db, id) {
   return res.changes > 0;
 }
 
+// ──────── 自动发送配置 ────────
+
+function _getSetting(db, key, defaultValue) {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  return row ? row.value : defaultValue;
+}
+
+function _setSetting(db, key, value) {
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at)
+    VALUES (?, ?, datetime('now', 'localtime'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, String(value));
+}
+
+function getAutoSendEnabled(db) {
+  return _getSetting(db, "autosend.enabled", "false") === "true";
+}
+
+function setAutoSendEnabled(db, enabled) {
+  _setSetting(db, "autosend.enabled", enabled ? "true" : "false");
+}
+
+function getAutoSendDailyCount(db) {
+  return Number(_getSetting(db, "autosend.daily_count", "100")) || 100;
+}
+
+function setAutoSendDailyCount(db, count) {
+  _setSetting(db, "autosend.daily_count", String(Math.max(1, Math.min(500, Number(count) || 100))));
+}
+
+function getAutoSendLastRun(db) {
+  const raw = _getSetting(db, "autosend.last_run", null);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function setAutoSendLastRun(db, info) {
+  _setSetting(db, "autosend.last_run", JSON.stringify(info));
+}
+
 // ──────── 首次启动种子数据 ────────
 
 /**
@@ -132,6 +173,13 @@ function seedDefaultsFromEnv(db) {
       checkIntervalMinutes: cfg.imap.checkIntervalMinutes,
     });
     console.log("[runtime-config] 已从 env 初始化 IMAP 配置到 settings 表");
+  }
+
+  // Seed 自动发送配置
+  if (!_getSetting(db, "autosend.enabled", null)) {
+    _setSetting(db, "autosend.enabled", "false");
+    _setSetting(db, "autosend.daily_count", "100");
+    console.log("[runtime-config] 已初始化自动发送配置 (默认关闭, 每日 100 封)");
   }
 
   // Seed 默认负责人
@@ -157,4 +205,10 @@ module.exports = {
   updateRecipient,
   deleteRecipient,
   seedDefaultsFromEnv,
+  getAutoSendEnabled,
+  setAutoSendEnabled,
+  getAutoSendDailyCount,
+  setAutoSendDailyCount,
+  getAutoSendLastRun,
+  setAutoSendLastRun,
 };
