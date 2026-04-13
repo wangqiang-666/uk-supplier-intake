@@ -226,13 +226,13 @@ async function checkForReplies(db, dbOps) {
           `[email-monitor] 新回复: ${fromEmail} - "${subject.slice(0, 50)}" ${matched ? "(已匹配)" : "(未匹配)"}`
         );
 
-        // 推送企业微信通知
-        if (isNotifyConfigured(db)) {
+        // 推送企业微信通知（仅推送已匹配供应商的邮件，避免同事/朋友邮件被推送到外部）
+        if (isNotifyConfigured(db) && org) {
           try {
             await notifyEmailReply(
               db,
               { id: null, from_email: fromEmail, subject, body: body.slice(0, 500), received_at: receivedAt },
-              org || null
+              org
             );
           } catch (notifyErr) {
             console.error(`[email-monitor] 推送通知失败: ${notifyErr.message}`);
