@@ -50,10 +50,11 @@
 │       │            │                                         │
 │       │            ▼                                         │
 │       │    ┌───────────────┐      ┌──────────────────┐       │
-│       │    │ 企微推送通知   │◄────│ openclaw-gateway  │       │
-│       │    │ (docker exec) │      │  AI 查询助手      │       │
-│       └────┤               │      │  端口 18789/18790│       │
-│            └───────────────┘      └──────────────────┘       │
+│       │    │ 企微推送通知   │      │ openclaw-gateway  │       │
+│       │    │ (应用消息 API) │      │  AI 查询助手      │       │
+│       └────┤  直接 HTTP    │      │  qwen-plus 模型   │       │
+│            └───────────────┘      │  端口 18789/18790│       │
+│                                   └──────────────────┘       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -269,43 +270,68 @@ WHERE source != ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
 - **匹配逻辑**: 发件人邮箱与 `organisations.email` 做 case-insensitive 匹配
 - **回复清洗**: 剥离引用历史 (Original Message)、签名、多余空白，只保留新内容
 - **代理支持**: 支持 HTTP CONNECT 隧道代理连接 IMAP 服务器
+- **二合一**: IMAP 监听邮箱同时作为发件的 Reply-To 地址，页面改一处全局生效
 
 ---
 
 ## 五、企微通知系统
 
-### 5.1 推送架构
+系统采用**双通道架构**：推送通知走企业微信应用消息 API，AI 问答走 OpenClaw Bot。
+
+### 5.1 推送架构（应用消息 API）
 
 ```
 uk-supplier-api 容器
       │
-      │ docker exec
+      │ axios HTTP POST
+      │ 企业微信应用消息 API
+      │ (qyapi.weixin.qq.com)
       ▼
-openclaw-gateway 容器
-      │
-      │ openclaw message send
-      │ --channel wecom
-      │ --target wecom:<userid>
-      ▼
-企业微信服务器 (WebSocket)
+企业微信服务器
       │
       ▼
-负责人手机收到推送
+全员负责人手机收到推送
 ```
 
-**前提条件**: `uk-supplier-api` 容器挂载宿主机的 `/var/run/docker.sock`，可以通过 `docker exec` 调用 `openclaw-gateway` 容器内的 CLI。
+**鉴权方式**: 通过 `WECOM_CORP_ID` + `WECOM_APP_SECRET` 获取 access_token，缓存 2 小时自动刷新。
+
+**推送目标**: 所有启用的通知负责人（Web UI 管理），支持 invaliduser 检测防止 API 返回成功但实际未送达。
 
 ### 5.2 三种通知类型
 
-| 通知类型 | 触发时机 | 内容 |
-|---------|---------|------|
-| 回复通知 | 检测到新邮件回复 | 供应商资料 + 回复内容预览 (限 200 字) |
-| 每日发送报告 | 自动发送完成后 | 发送统计、成功率、剩余待发送量 |
-| 异常报警 | 发送成功率 < 90% | 失败详情和错误信息 |
+| 通知类型 | 触发时机 | 推送对象 | 内容 |
+|---------|---------|---------|------|
+| 回复通知 | 检测到新邮件回复 | 全员 | 供应商资料 + 回复内容预览 (限 200 字) + 回复负责人提示 |
+| 每日发送报告 | 自动发送完成后 | 全员 | 发送统计、成功率、剩余待发送量 |
+| 异常报警 | 发送成功率 < 90% | 全员 | 失败详情和错误信息 |
 
-### 5.3 AI 查询助手
+**回复通知特殊逻辑**:
+- 通知推送给所有启用的负责人（全员知晓）
+- 底部文案只显示"回复负责人"的名字，如 `👉 Jacky，请及时回复客户`
+- 回复负责人自动根据 IMAP 邮箱匹配：邮箱 `jacky@xxx` → 匹配负责人 `Jacky`
+- 页面切换 IMAP 邮箱（换负责人），通知文案自动跟随
 
-`openclaw-gateway` 同时作为企微 AI 机器人运行，接收用户消息，通过技能文件 (`SKILL.md`) 定义的 API 映射，调用 `uk-supplier-api` 的 REST 接口查询数据后回复。
+### 5.3 AI 查询助手（OpenClaw Bot）
+
+```
+企业微信用户发消息
+      │
+      │ WebSocket 长连接
+      ▼
+openclaw-gateway 容器
+      │
+      │ 阿里百炼 qwen-plus 模型
+      │ + uk-supplier-search Skill
+      ▼
+调用 uk-supplier-api REST API
+      │
+      ▼
+返回查询结果给用户
+```
+
+`openclaw-gateway` 作为企微 AI 机器人运行，接收用户消息，通过 Skill 定义的 API 映射，调用 `uk-supplier-api` 的 REST 接口查询数据后回复。
+
+**模型配置**: 阿里百炼通义千问 Plus (`aliyun/qwen-plus`)，OpenAI 兼容 API 格式。
 
 支持的查询能力:
 - 供应商搜索 (按名称、城市、数据源)
@@ -314,6 +340,20 @@ openclaw-gateway 容器
 - 邮件发送/回复统计
 - 数据质量报告
 - 手动触发采集
+
+### 5.4 IMAP 邮箱与 Reply-To 二合一
+
+```
+Web UI 修改 IMAP 邮箱
+      │
+      ├──→ 更新 IMAP 监听配置（收件）
+      ├──→ 同步 email.replyTo（发件 Reply-To 地址）
+      └──→ 自动匹配回复负责人（通知文案）
+```
+
+- 页面上只需修改一处 IMAP 邮箱，即可同时切换：谁负责监听回复、邮件回复地址指向谁、通知文案里显示谁
+- 启动时从数据库加载 Reply-To 配置，保证重启后不丢失
+- 运行时修改立即生效，无需重启服务
 
 ---
 
@@ -413,7 +453,6 @@ notify_recipients (企微通知负责人)
 │  │    ./data → /app/data               │                │
 │  │    ./logs → /app/logs               │                │
 │  │    ./output → /app/output           │                │
-│  │    docker.sock → docker.sock        │                │
 │  └────────────────┬────────────────────┘                │
 │                   │ app-network                          │
 │  ┌────────────────┴────────────────────┐                │
@@ -421,6 +460,7 @@ notify_recipients (企微通知负责人)
 │  │        (ghcr.io/openclaw/openclaw)  │                │
 │  │                                     │                │
 │  │  AI 助手 + 企微 WebSocket 通道       │                │
+│  │  模型: 阿里百炼 qwen-plus           │                │
 │  │                                     │                │
 │  │  端口: 18789 (控制台), 18790         │                │
 │  │  内存限制: 4GB                      │                │
@@ -478,7 +518,7 @@ notify_recipients (企微通知负责人)
 | 数据质量面板 | 各数据源字段完整率可视化 |
 | 供应商列表 | 分页表格，支持搜索、筛选、排序 |
 | CSV 导出 | 全量或筛选导出，UTF-8 BOM 兼容 Excel |
-| IMAP 配置 | 收件监听邮箱配置，保存后热重启 |
+| IMAP / Reply-To 配置 | 收件监听邮箱配置（同时作为 Reply-To），保存后热重启 |
 | 通知管理 | 企微负责人增删、启停、测试推送 |
 | 自动发送设置 | 开关、每日发送量、手动触发 |
 
@@ -537,8 +577,8 @@ notify_recipients (企微通知负责人)
 | 进程管理 | PM2 | 容器内守护进程 |
 | 虚拟显示 | Xvfb | Docker 内 headful 浏览器 |
 | 容器化 | Docker + Docker Compose | 双容器部署 |
-| AI 助手 | OpenClaw + Claude Haiku 4.5 | 企微查询机器人 |
-| 通知渠道 | 企业微信 (WebSocket) | 实时推送 |
+| AI 助手 | OpenClaw + 阿里百炼 qwen-plus | 企微查询机器人 |
+| 通知渠道 | 企业微信应用消息 API (推送) + WebSocket Bot (问答) | 双通道架构 |
 | 网络访问 | Tailscale VPN | 内网穿透 |
 | 前端 | 原生 HTML/CSS/JS | 零依赖管理界面 |
 
@@ -594,10 +634,17 @@ docker exec -e SOURCE=facultyoffice uk-supplier-api node src/ingest.js
 |------|---------|
 | Law Society 爬取 0 条 | 检查日志中 reCAPTCHA 验证是否超时，可手动触发重试 |
 | 邮件发送失败率高 | 检查 `/api/email/health`，确认 Resend API Key 有效 |
-| 企微推送失败 | 确认 docker.sock 挂载，检查 openclaw-gateway 日志 |
+| 企微推送失败 | 检查 WECOM_CORP_ID / WECOM_APP_SECRET 配置，确认 userid 正确且在应用可见范围内 |
 | IMAP 连接失败 | Web UI 检查 IMAP 配置，确认密码和端口正确 |
 | 数据库锁 | SQLite WAL 模式下罕见，重启容器可恢复 |
 
 ---
 
-*文档版本: v1.0 | 更新日期: 2026-04-11*
+*文档版本: v1.1 | 更新日期: 2026-04-13*
+
+### 更新记录
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| v1.1 | 2026-04-13 | 企微通知从 docker exec 切换到应用消息 API 直推；AI 模型从 Claude Haiku 切换到阿里百炼 qwen-plus；新增 IMAP/Reply-To 二合一；新增 invaliduser 检测 |
+| v1.0 | 2026-04-11 | 初版 |

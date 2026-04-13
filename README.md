@@ -15,7 +15,11 @@ SQLite 数据库 (去重+入库)
     ↓
 IMAP 回复监听 (每分钟轮询)
     ↓
-Web UI 管理 + 企微通知
+企微应用消息推送 (日报/回复/报警 → 全员)
+    +
+OpenClaw AI 问答 (企微机器人 → qwen-plus)
+    ↓
+Web UI 管理界面
 ```
 
 ## 数据源
@@ -38,7 +42,8 @@ cp .env.example .env
 关键配置项：
 - `SRA_API_KEY` - SRA API 订阅密钥
 - `RESEND_API_KEY` - Resend 邮件发送 API Key
-- `IMAP_HOST` / `IMAP_USER` / `IMAP_PASS` - IMAP 收件配置
+- `IMAP_HOST` / `IMAP_USER` / `IMAP_PASS` - IMAP 收件配置（IMAP 邮箱同时作为 Reply-To 地址）
+- `WECOM_CORP_ID` / `WECOM_AGENT_ID` / `WECOM_APP_SECRET` - 企业微信应用消息推送
 - `EMAIL_TEST_TO` - 测试邮箱地址（设置后所有邮件发到此地址，留空则发给真实收件人）
 - `WORK_AREAS` - 筛选专业领域，默认 `Immigration,Private client`
 - `LAW_SOCIETY_PAGES_PER_DAY` - Law Society 每天爬取页数，默认 5
@@ -53,8 +58,8 @@ docker compose up -d --build
 
 | 容器 | 端口 | 说明 |
 |------|------|------|
-| uk-supplier-api | 3000 | 主服务（API + 定时任务 + 邮件系统） |
-| openclaw-gateway | 18789, 18790 | OpenClaw AI 助手（企微通知） |
+| uk-supplier-api | 3000 | 主服务（API + 定时任务 + 邮件系统 + 企微推送） |
+| openclaw-gateway | 18789, 18790 | OpenClaw AI 助手（企微问答机器人，阿里百炼 qwen-plus） |
 
 ### 3. 首次数据导入
 
@@ -104,15 +109,28 @@ docker exec -e SOURCE=facultyoffice uk-supplier-api node src/ingest.js
 | `POST /api/trigger-scrape` | 手动触发爬取 |
 | `GET /api/settings/autosend` | 自动发送配置 |
 | `PUT /api/settings/autosend` | 更新自动发送配置 |
-| `GET /api/settings/imap` | IMAP 配置 |
-| `PUT /api/settings/imap` | 更新 IMAP 配置 |
+| `GET /api/settings/imap` | IMAP 配置（含 Reply-To） |
+| `PUT /api/settings/imap` | 更新 IMAP 配置（自动同步 Reply-To） |
+| `GET/POST/PUT/DELETE /api/settings/recipients` | 通知负责人管理 |
+| `POST /api/settings/recipients/:id/test` | 测试推送给指定负责人 |
 
 ## 邮件系统
 
 - **发送**: Resend API (主) / SMTP (备)
 - **接收**: IMAP 轮询监听回复
+- **Reply-To 二合一**: IMAP 监听邮箱同时作为发件 Reply-To 地址，页面改一处全局生效
 - **测试模式**: `.env` 中设置 `EMAIL_TEST_TO` 后所有邮件转发到测试邮箱
 - **自动发送**: 通过 Web UI 或 API 开启，英国工作日自动发送
+
+## 企微通知（双通道）
+
+| 通道 | 用途 | 技术 |
+|------|------|------|
+| 应用消息推送 | 日报、回复通知、异常报警 → 全员 | 企业微信应用消息 API (HTTP) |
+| AI 问答机器人 | 用户在企微群中查询供应商数据 | OpenClaw + 阿里百炼 qwen-plus |
+
+- 邮件回复通知全员推送，文案只显示回复负责人（如 `Jacky，请及时回复客户`）
+- 回复负责人根据 IMAP 邮箱自动匹配，切换邮箱即切换负责人
 
 ## 常用运维命令
 
@@ -157,7 +175,10 @@ Law Society 使用 Google reCAPTCHA Enterprise 做浏览器验证。爬虫使用
 │   │   └── faculty-office.js   # Faculty Office 爬虫
 │   ├── lib/
 │   │   ├── auto-sender.js      # 自动邮件发送
+│   │   ├── email-sender.js     # 邮件发送（Resend + SMTP）
 │   │   ├── email-monitor.js    # IMAP 回复监听
+│   │   ├── wecom-notifier.js   # 企微应用消息推送
+│   │   ├── runtime-config.js   # 运行时配置（IMAP/Reply-To/负责人）
 │   │   └── proxy.js            # 代理支持
 │   └── db/
 │       └── index.js            # SQLite 数据库操作
