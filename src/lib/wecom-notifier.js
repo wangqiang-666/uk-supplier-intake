@@ -1,17 +1,50 @@
 /**
  * 企业微信通知模块
- * 通过 docker exec 调用 openclaw-gateway 容器中的 openclaw CLI，
- * 使用 `openclaw message send --channel wecom` 推送消息到企业微信
+ * 通过企业微信「应用消息」API 推送通知给指定成员
  *
- * 依赖：uk-supplier-api 容器必须挂载宿主机的 docker.sock，
- * 例如在 docker-compose.yml 中：
- *   volumes:
- *     - /var/run/docker.sock:/var/run/docker.sock
+ * 需要环境变量：
+ *   WECOM_CORP_ID     - 企业 CorpID
+ *   WECOM_AGENT_ID    - 应用 AgentId
+ *   WECOM_APP_SECRET  - 应用 Secret
  */
-const { execFile } = require("child_process");
+const axios = require("axios");
+const crypto = require("crypto");
 const runtimeConfig = require("./runtime-config");
 
-const CONTAINER_NAME = process.env.OPENCLAW_CONTAINER_NAME || "openclaw-gateway";
+const CORP_ID = process.env.WECOM_CORP_ID;
+const AGENT_ID = Number(process.env.WECOM_AGENT_ID) || 1000114;
+const APP_SECRET = process.env.WECOM_APP_SECRET;
+
+// access_token 缓存（有效期 7200 秒，提前 5 分钟刷新）
+let tokenCache = { token: null, expiresAt: 0 };
+
+/**
+ * 获取 access_token（带缓存）
+ */
+async function getAccessToken() {
+  if (tokenCache.token && Date.now() < tokenCache.expiresAt) {
+    return tokenCache.token;
+  }
+
+  if (!CORP_ID || !APP_SECRET) {
+    throw new Error("企业微信凭证未配置：请设置 WECOM_CORP_ID 和 WECOM_APP_SECRET 环境变量");
+  }
+
+  const url = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${CORP_ID}&corpsecret=${APP_SECRET}`;
+  const { data } = await axios.get(url, { timeout: 10000 });
+
+  if (data.errcode !== 0) {
+    throw new Error(`获取 access_token 失败: errcode=${data.errcode}, errmsg=${data.errmsg}`);
+  }
+
+  tokenCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 300) * 1000,
+  };
+
+  console.log("[wecom-notifier] access_token 已刷新");
+  return tokenCache.token;
+}
 
 /**
  * 检查通知是否已配置（数据库中是否有启用的负责人）
@@ -20,22 +53,6 @@ const CONTAINER_NAME = process.env.OPENCLAW_CONTAINER_NAME || "openclaw-gateway"
 function isNotifyConfigured(db) {
   if (!db) return false;
   return runtimeConfig.getEnabledRecipients(db).length > 0;
-}
-
-/**
- * 执行 docker exec 命令（Promise 封装）
- */
-function dockerExec(args, timeoutMs = 20000) {
-  return new Promise((resolve, reject) => {
-    execFile("docker", args, { timeout: timeoutMs }, (err, stdout, stderr) => {
-      if (err) {
-        err.stdout = stdout;
-        err.stderr = stderr;
-        return reject(err);
-      }
-      resolve({ stdout, stderr });
-    });
-  });
 }
 
 /**
@@ -68,13 +85,33 @@ function cleanReplyBody(body) {
 }
 
 /**
+ * 根据 IMAP 用户邮箱找到对应的回复负责人
+ * 规则：邮箱 local part（@前面部分，去空格去点，小写）与 recipient.name 小写后相等
+ * 找不到就返回第一个启用的 recipient
+ */
+function pickReplyHandler(db) {
+  const recipients = runtimeConfig.getEnabledRecipients(db);
+  if (!recipients.length) return null;
+
+  try {
+    const imap = runtimeConfig.getImapConfig(db);
+    const localPart = String(imap.user || "").split("@")[0].replace(/[.\s]/g, "").toLowerCase();
+    if (localPart) {
+      const match = recipients.find((r) => String(r.name || "").replace(/\s/g, "").toLowerCase() === localPart);
+      if (match) return match;
+    }
+  } catch (_) {}
+
+  return recipients[0];
+}
+
+/**
  * 格式化邮件回复为通知消息
  */
 function formatReplyNotification(reply, org, recipients) {
   const DIV = "━━━━━━━━━━━━━━━━━━━━";
   const lines = [];
 
-  // 标题区：根据匹配状态用不同 emoji 和标题，一眼识别
   if (org) {
     lines.push(`📬 新回复 · 已匹配供应商`);
   } else {
@@ -82,7 +119,6 @@ function formatReplyNotification(reply, org, recipients) {
   }
   lines.push(DIV);
 
-  // 供应商信息区（匹配成功时展示完整资料，方便判断是否值得回复）
   if (org) {
     lines.push(`🏢 供应商信息`);
     lines.push(`  名称：${org.name || "-"}`);
@@ -97,13 +133,11 @@ function formatReplyNotification(reply, org, recipients) {
     lines.push(DIV);
   }
 
-  // 邮件信息区
   lines.push(`✉️ 邮件`);
   lines.push(`  发件人：${reply.from_email}`);
   lines.push(`  主题：${reply.subject || "(无主题)"}`);
   lines.push(`  时间：${reply.received_at}`);
 
-  // 正文预览（剥离引用历史和签名，限 200 字符防企业微信截断）
   const cleaned = cleanReplyBody(reply.body);
   if (cleaned) {
     lines.push(DIV);
@@ -116,41 +150,67 @@ function formatReplyNotification(reply, org, recipients) {
     }
   }
 
-  // 操作提示
   lines.push(DIV);
+  // recipients 这里传入的是"回复负责人"单个对象或包含一个元素的数组
+  const handler = Array.isArray(recipients) ? recipients[0] : recipients;
+  const handlerName = handler && handler.name ? handler.name : "负责人";
   if (org) {
-    lines.push(`👉 请及时跟进回复`);
+    lines.push(`👉 ${handlerName}，请及时回复客户`);
   } else {
-    lines.push(`👉 建议人工核对发件人身份`);
-  }
-
-  // 跟进负责人（让所有人知道通知已同步给谁）
-  if (recipients && recipients.length > 0) {
-    const names = recipients.map((r) => r.name).join("、");
-    lines.push(`👥 跟进负责人：${names}`);
+    lines.push(`👉 ${handlerName}，请核对发件人身份并回复客户`);
   }
 
   return lines.join("\n");
 }
 
 /**
- * 通过 docker exec 调用 openclaw CLI 发送消息到指定的企业微信用户
+ * 通过企业微信应用消息 API 发送文本消息到指定用户
  * @param {string} userid - 企业微信 userid
  * @param {string} message - 消息内容
  */
 async function sendMessageToUser(userid, message) {
-  const args = [
-    "exec", CONTAINER_NAME,
-    "openclaw", "message", "send",
-    "--channel", "wecom",
-    "--target", `wecom:${userid}`,
-    "--message", message,
-  ];
+  const token = await getAccessToken();
+  const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`;
 
-  const { stdout, stderr } = await dockerExec(args);
-  const output = (stdout + stderr).trim();
-  const ok = output.includes("Sent via gateway") || output.includes("✅");
-  return { success: ok, output };
+  const payload = {
+    touser: userid,
+    msgtype: "text",
+    agentid: AGENT_ID,
+    text: { content: message },
+  };
+
+  const { data } = await axios.post(url, payload, { timeout: 10000 });
+
+  if (data.errcode === 0) {
+    if (data.invaliduser) {
+      console.warn(`[wecom-notifier] ⚠️ ${userid} 在 invaliduser 列表中: ${data.invaliduser}`);
+      return { success: false, output: `userid ${userid} 无效（invaliduser: ${data.invaliduser}）` };
+    }
+    return { success: true, output: `已通过应用消息推送给 ${userid}` };
+  }
+
+  // token 过期，刷新后重试一次
+  if (data.errcode === 40014 || data.errcode === 42001) {
+    console.log("[wecom-notifier] access_token 过期，重新获取…");
+    tokenCache = { token: null, expiresAt: 0 };
+    const newToken = await getAccessToken();
+    const retryUrl = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${newToken}`;
+    const retry = await axios.post(retryUrl, payload, { timeout: 10000 });
+    if (retry.data.errcode === 0) {
+      return { success: true, output: `已通过应用消息推送给 ${userid}（token 已刷新）` };
+    }
+    return {
+      success: false,
+      output: `errcode=${retry.data.errcode}, errmsg=${retry.data.errmsg}`,
+      error: `推送失败: ${retry.data.errmsg}`,
+    };
+  }
+
+  return {
+    success: false,
+    output: `errcode=${data.errcode}, errmsg=${data.errmsg}`,
+    error: `推送失败: ${data.errmsg}`,
+  };
 }
 
 /**
@@ -173,7 +233,7 @@ async function sendToWecom(db, message) {
       console.log(`[wecom-notifier] 推送 → ${r.name}(${r.wecom_userid}): ${result.output}`);
       results.push({ userid: r.wecom_userid, name: r.name, success: result.success, output: result.output });
     } catch (err) {
-      const errMsg = (err.stderr || err.message || "").trim();
+      const errMsg = (err.message || "").trim();
       console.error(`[wecom-notifier] 推送异常 → ${r.name}(${r.wecom_userid}): ${errMsg}`);
       results.push({ userid: r.wecom_userid, name: r.name, success: false, error: errMsg });
     }
@@ -183,14 +243,11 @@ async function sendToWecom(db, message) {
 }
 
 /**
- * 推送邮件回复通知给所有启用的负责人
- * @param {object} db - 数据库实例
- * @param {object} reply - 回复信息
- * @param {object|null} org - 匹配的供应商（可选）
+ * 推送邮件回复通知给全员，但文案只显示回复负责人的名字
  */
 async function notifyEmailReply(db, reply, org) {
-  const recipients = runtimeConfig.getEnabledRecipients(db);
-  const message = formatReplyNotification(reply, org, recipients);
+  const handler = pickReplyHandler(db);
+  const message = formatReplyNotification(reply, org, handler);
   return sendToWecom(db, message);
 }
 
@@ -262,6 +319,142 @@ function formatAutoSendAlert(stats) {
   return lines.join("\n");
 }
 
+// ──────────────────────────────────────────────
+// 企业微信应用消息回调处理（接收用户消息 + 回复）
+// ──────────────────────────────────────────────
+
+const CALLBACK_TOKEN = process.env.WECOM_TOKEN || "";
+const CALLBACK_ENCODING_KEY = process.env.WECOM_ENCODING_KEY || "";
+
+/**
+ * 验证企业微信回调签名
+ */
+function verifyCallbackSignature(signature, timestamp, nonce, encrypt) {
+  const arr = [CALLBACK_TOKEN, timestamp, nonce, encrypt].sort();
+  const sha1 = crypto.createHash("sha1").update(arr.join("")).digest("hex");
+  return sha1 === signature;
+}
+
+/**
+ * 解密企业微信回调消息
+ */
+function decryptCallbackMessage(encrypt) {
+  if (!CALLBACK_ENCODING_KEY) {
+    throw new Error("WECOM_ENCODING_KEY 未配置");
+  }
+
+  const key = Buffer.from(CALLBACK_ENCODING_KEY + "=", "base64");
+  const iv = key.slice(0, 16);
+
+  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+  decipher.setAutoPadding(false);
+
+  let decrypted = Buffer.concat([decipher.update(encrypt, "base64"), decipher.final()]);
+
+  // 去除 PKCS#7 填充
+  const pad = decrypted[decrypted.length - 1];
+  decrypted = decrypted.slice(0, decrypted.length - pad);
+
+  // 格式：16字节随机数 + 4字节消息长度(大端) + 消息内容 + corpId
+  const content = decrypted.slice(16);
+  const msgLen = content.readUInt32BE(0);
+  const msg = content.slice(4, 4 + msgLen).toString("utf8");
+
+  return msg;
+}
+
+/**
+ * 处理企业微信 URL 验证请求 (GET)
+ */
+function handleCallbackVerify(req, res) {
+  const { msg_signature, timestamp, nonce, echostr } = req.query;
+
+  console.log("[wecom-callback] 收到 URL 验证请求");
+
+  if (!verifyCallbackSignature(msg_signature, timestamp, nonce, echostr)) {
+    console.log("[wecom-callback] ❌ 签名验证失败");
+    return res.status(403).send("signature verification failed");
+  }
+
+  console.log("[wecom-callback] ✅ 签名验证通过");
+
+  try {
+    const echoStr = decryptCallbackMessage(echostr);
+    console.log("[wecom-callback] ✅ 解密成功，返回 echostr");
+    res.send(echoStr);
+  } catch (err) {
+    console.error("[wecom-callback] ❌ 解密失败:", err.message);
+    res.status(500).send("decrypt error");
+  }
+}
+
+/**
+ * 处理企业微信消息推送 (POST)
+ * @param {Function} onMessage - 收到用户消息时的回调: (userid, content, msgType) => Promise<string|null>
+ */
+function handleCallbackMessage(onMessage) {
+  return async (req, res) => {
+    const { msg_signature, timestamp, nonce } = req.query;
+    const body = req.body;
+
+    console.log("[wecom-callback] 收到消息推送");
+
+    try {
+      // 解析 Encrypt 字段
+      const encryptMatch = body.match(/<Encrypt><!\[CDATA\[(.*?)\]\]><\/Encrypt>/);
+      if (!encryptMatch) {
+        console.error("[wecom-callback] ❌ 无法解析 Encrypt 字段");
+        return res.send("success");
+      }
+
+      const encrypt = encryptMatch[1];
+
+      // 验证签名
+      if (!verifyCallbackSignature(msg_signature, timestamp, nonce, encrypt)) {
+        console.error("[wecom-callback] ❌ 签名验证失败");
+        return res.status(403).send("signature verification failed");
+      }
+
+      // 解密消息
+      const msg = decryptCallbackMessage(encrypt);
+      console.log("[wecom-callback] ✅ 消息解密成功");
+
+      // 解析 XML
+      const useridMatch = msg.match(/<FromUserName><!\[CDATA\[(.*?)\]\]><\/FromUserName>/);
+      const contentMatch = msg.match(/<Content><!\[CDATA\[(.*?)\]\]><\/Content>/);
+      const msgTypeMatch = msg.match(/<MsgType><!\[CDATA\[(.*?)\]\]><\/MsgType>/);
+
+      if (useridMatch && msgTypeMatch) {
+        const userid = useridMatch[1];
+        const content = contentMatch ? contentMatch[1] : "";
+        const msgType = msgTypeMatch[1];
+
+        console.log(`[wecom-callback] 📨 用户: ${userid}, 类型: ${msgType}, 内容: ${content}`);
+
+        if (msgType === "text" && onMessage) {
+          // 调用业务逻辑处理，获取回复
+          const reply = await onMessage(userid, content, msgType);
+          if (reply) {
+            await sendMessageToUser(userid, reply);
+          }
+        }
+      }
+
+      res.send("success");
+    } catch (err) {
+      console.error("[wecom-callback] ❌ 处理错误:", err.message);
+      res.send("success"); // 即使出错也返回 success，避免企业微信重试
+    }
+  };
+}
+
+/**
+ * 检查回调配置是否完整
+ */
+function isCallbackConfigured() {
+  return !!(CALLBACK_TOKEN && CALLBACK_ENCODING_KEY);
+}
+
 module.exports = {
   notifyEmailReply,
   sendToWecom,
@@ -270,4 +463,8 @@ module.exports = {
   formatReplyNotification,
   formatAutoSendReport,
   formatAutoSendAlert,
+  // 回调相关
+  handleCallbackVerify,
+  handleCallbackMessage,
+  isCallbackConfigured,
 };

@@ -11,14 +11,11 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./output:/app/output
-      # 挂载 docker.sock 以便容器内可以 docker exec openclaw-gateway openclaw message send
-      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
-      - OPENCLAW_CONTAINER_NAME=openclaw-gateway
     restart: unless-stopped
     deploy:
       resources:

@@ -94,7 +94,11 @@
   <div class="settings-panel" id="settingsPanel" style="display:none">
     <!-- IMAP 收件邮箱配置 -->
     <div class="settings-section">
-      <h2>IMAP 收件邮箱配置</h2>
+      <h2>邮件回复邮箱（IMAP）</h2>
+      <div style="font-size:12px;color:#636e72;margin-bottom:10px;padding:8px 12px;background:#f1f2f6;border-radius:6px">
+        💡 此邮箱既用于<b>监听供应商回复</b>，也作为邮件的 <b>Reply-To 地址</b>。<br>
+        切换负责人只需修改此处邮箱，发出的邮件会自动带上这个回复地址。
+      </div>
       <div id="imapMsg" class="msg-box"></div>
       <input type="hidden" id="imapHost" />
       <input type="hidden" id="imapPort" />

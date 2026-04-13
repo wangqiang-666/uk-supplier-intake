@@ -51,7 +51,11 @@ function setImapConfig(db, patch) {
   const entries = [];
   if (patch.host !== undefined) entries.push(["imap.host", patch.host]);
   if (patch.port !== undefined) entries.push(["imap.port", patch.port]);
-  if (patch.user !== undefined) entries.push(["imap.user", patch.user]);
+  if (patch.user !== undefined) {
+    entries.push(["imap.user", patch.user]);
+    // 二合一：IMAP 用户邮箱同时作为邮件 Reply-To 地址
+    entries.push(["email.replyTo", patch.user]);
+  }
   if (patch.pass !== undefined && patch.pass !== "" && patch.pass !== "****") {
     entries.push(["imap.pass", patch.pass]);
   }
@@ -195,9 +199,19 @@ function seedDefaultsFromEnv(db) {
   }
 }
 
+/**
+ * 获取 Reply-To 邮箱：优先从数据库（跟随 IMAP 用户邮箱），否则使用 env/默认
+ */
+function getReplyToEmail(db) {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get("email.replyTo");
+  if (row && row.value) return row.value;
+  return cfg.email.replyTo;
+}
+
 module.exports = {
   getImapConfig,
   setImapConfig,
+  getReplyToEmail,
   listRecipients,
   getEnabledRecipients,
   getRecipientById,

@@ -9,7 +9,7 @@ const { getDb, closeDb, listSources, listRuns, getUnsentOrganisations, markOrgan
 const { startScheduler, runIngest } = require("./scheduler");
 const { sendBatch, replyToEmail, verifySmtp, isSmtpConfigured, getTestRecipients } = require("./lib/email-sender");
 const { checkForReplies, verifyImap, isImapConfigured, startImapMonitor, stopImapMonitor, getMonitorStatus } = require("./lib/email-monitor");
-const { sendToWecom, sendMessageToUser, isNotifyConfigured } = require("./lib/wecom-notifier");
+const { sendToWecom, sendMessageToUser, isNotifyConfigured, handleCallbackVerify, handleCallbackMessage, isCallbackConfigured } = require("./lib/wecom-notifier");
 const { runAutoSend, isAutoSendRunning, getRemainingBySource } = require("./lib/auto-sender");
 const runtimeConfig = require("./lib/runtime-config");
 
@@ -460,6 +460,13 @@ app.put("/api/settings/imap", async (req, res) => {
     checkIntervalMinutes: checkIntervalMinutes !== undefined ? Number(checkIntervalMinutes) : undefined,
   });
 
+  // 二合一：IMAP 用户邮箱同时作为邮件 Reply-To 地址
+  if (user !== undefined && String(user).trim()) {
+    const emailCfg = require("./config/email-config");
+    emailCfg.email.replyTo = String(user).trim();
+    console.log(`[settings] Reply-To 已同步为 IMAP 邮箱: ${emailCfg.email.replyTo}`);
+  }
+
   // 验证连接
   const verifyResult = await verifyImap(db);
 
@@ -650,9 +657,50 @@ app.get("/api/export-orgs", (req, res) => {
   res.send("\uFEFF" + lines.join("\n"));
 });
 
+// ──────────────────────────────────────────────
+// 企业微信应用消息回调（接收用户消息 + 双向问答）
+// ──────────────────────────────────────────────
+
+// GET /wecom/callback — 企业微信 URL 验证
+app.get("/wecom/callback", (req, res) => {
+  if (!isCallbackConfigured()) {
+    console.error("[wecom-callback] ❌ 回调未配置：缺少 WECOM_TOKEN 或 WECOM_ENCODING_KEY");
+    return res.status(500).send("callback not configured");
+  }
+  handleCallbackVerify(req, res);
+});
+
+// POST /wecom/callback — 接收企业微信推送的用户消息
+app.post("/wecom/callback", express.text({ type: "*/*" }),
+  handleCallbackMessage(async (userid, content, msgType) => {
+    console.log(`[wecom-callback] 收到用户消息: ${userid} - ${content}`);
+
+    // 简单的自动回复逻辑（后续可以接入 openclaw）
+    if (content.includes("帮助") || content.includes("help")) {
+      return `你好！我是 UK Supplier Intake 助手。\n\n你可以：\n- 查询供应商数据\n- 查看邮件回复\n- 查看采集状态\n\n直接告诉我你想做什么！`;
+    }
+
+    // 默认回复
+    return `收到你的消息："${content}"\n\n这是通过应用消息 API 的自动回复。`;
+  })
+);
+
 app.listen(PORT, () => {
   console.log(`Web server running at http://localhost:${PORT}`);
   console.log(`Tip: run "npm run ingest" first to load SRA organisations into SQLite.`);
+
+  // 启动时从数据库加载最新的 Reply-To（跟随 IMAP 用户邮箱）
+  try {
+    const db = getDb();
+    const dbReplyTo = runtimeConfig.getReplyToEmail(db);
+    if (dbReplyTo) {
+      const emailCfg = require("./config/email-config");
+      emailCfg.email.replyTo = dbReplyTo;
+      console.log(`[settings] Reply-To 已从数据库加载: ${dbReplyTo}`);
+    }
+  } catch (err) {
+    console.warn(`[settings] 加载 Reply-To 失败: ${err.message}`);
+  }
 
   // 启动定时任务调度器
   startScheduler();
