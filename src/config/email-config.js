@@ -38,8 +38,8 @@ const config = {
     batchSize: Number(process.env.EMAIL_BATCH_SIZE || 20),
     intervalMs: Number(process.env.EMAIL_INTERVAL_MS || 2000),
     dailyLimit: Number(process.env.EMAIL_DAILY_LIMIT || 450),
-    // 测试模式：设置后所有邮件发到这些地址，清空则发给真实目标
-    testTo: process.env.EMAIL_TEST_TO !== undefined ? process.env.EMAIL_TEST_TO : "jacky@inotary.com.hk",
+    // 测试模式：设置后所有邮件发到这个地址，不设则发给真实目标
+    testTo: process.env.EMAIL_TEST_TO || "",
   },
 
   // ──────── 企业微信通知（OpenClaw Gateway）────────
