@@ -58,6 +58,19 @@
     .form-row { display: flex; gap: 12px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
     .form-row label { min-width: 140px; font-weight: 600; color: #636e72; font-size: 13px; }
     .form-row input[type="text"], .form-row input[type="password"], .form-row input[type="number"] { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid #b2bec3; border-radius: 6px; font-size: 13px; }
+    .track-pipeline { display: flex; align-items: center; gap: 0; min-width: 180px; }
+    .track-node { display: flex; flex-direction: column; align-items: center; position: relative; z-index: 1; }
+    .track-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #dfe6e9; background: #fff; transition: all 0.2s; }
+    .track-dot.active { border-color: #00b894; background: #00b894; }
+    .track-dot.active.opened { border-color: #0984e3; background: #0984e3; }
+    .track-dot.active.clicked { border-color: #6c5ce7; background: #6c5ce7; }
+    .track-dot.active.bounced { border-color: #d63031; background: #d63031; }
+    .track-dot.active.complained { border-color: #d63031; background: #d63031; }
+    .track-label { font-size: 10px; color: #b2bec3; margin-top: 3px; white-space: nowrap; }
+    .track-label.active { color: #2d3436; font-weight: 600; }
+    .track-line { flex: 1; height: 2px; background: #dfe6e9; min-width: 12px; margin-top: -10px; }
+    .track-line.active { background: #00b894; }
+    .track-alert { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #d63031; padding: 2px 8px; background: #ffeaea; border-radius: 6px; }
     .pass-wrap { position: relative; flex: 1; min-width: 200px; display: flex; }
     .pass-wrap input { flex: 1; padding-right: 36px !important; }
     .pass-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 16px; color: #636e72; padding: 2px; }
@@ -223,6 +236,7 @@
       { key: "email", label: "邮箱", sortable: false },
       { key: "website", label: "网站", sortable: false },
       { key: "_quality", label: "数据质量", sortable: false },
+      { key: "_tracking", label: "邮件状态", sortable: false },
       { key: "email_sent", label: "已发邮件", sortable: true },
       { key: "email_sent_at", label: "发送时间", sortable: true },
       { key: "email_send_count", label: "发送次数", sortable: true },
@@ -256,8 +270,11 @@
         th.textContent = c.label + arrow;
         if (c.sortable) {
           th.onclick = () => {
+            // 首次点击某列时的默认排序方向：
+            // 日期/计数/状态类字段默认降序（最新/最大/已发的在前）
+            const descFirst = new Set(["email_sent", "email_sent_at", "email_send_count", "updated_at", "apostille_qualified"]);
             if (state.sort === c.key) state.order = state.order === "asc" ? "desc" : "asc";
-            else { state.sort = c.key; state.order = "asc"; }
+            else { state.sort = c.key; state.order = descFirst.has(c.key) ? "desc" : "asc"; }
             state.page = 1;
             load();
           };
@@ -321,6 +338,45 @@
         const pct = max > 0 ? Math.round((score / max) * 100) : 0;
         const color = pct >= 80 ? "#00b894" : pct >= 50 ? "#fdcb6e" : "#d63031";
         return `<span style="color:${color};font-weight:600">${pct}%</span>`;
+      }
+      if (key === "_tracking") {
+        if (!row.email_sent) {
+          return '<span style="color:#b2bec3;font-size:12px">未发送</span>';
+        }
+
+        // 异常状态：退信或投诉，直接红色警告
+        if (row.tracking_bounced) {
+          return '<span class="track-alert">⚠️ 退信</span>';
+        }
+        if (row.tracking_complained) {
+          return '<span class="track-alert">🚫 投诉</span>';
+        }
+
+        // 正常流程：发送 → 送达 → 打开
+        const steps = [
+          { key: 'sent',      label: '发送', active: true },
+          { key: 'delivered', label: '送达', active: !!row.tracking_delivered },
+          { key: 'opened',    label: '打开', active: !!row.tracking_opened },
+        ];
+
+        let html = '<div class="track-pipeline">';
+        steps.forEach((s, i) => {
+          // 节点
+          const dotCls = s.active ? `active ${s.key}` : '';
+          const lblCls = s.active ? 'active' : '';
+          let label = s.label;
+          if (s.key === 'opened' && s.active && row.tracking_open_count > 1) {
+            label += ` ${row.tracking_open_count}次`;
+          }
+          html += `<div class="track-node"><div class="track-dot ${dotCls}"></div><div class="track-label ${lblCls}">${label}</div></div>`;
+          // 连接线（最后一个不加）
+          if (i < steps.length - 1) {
+            const lineCls = steps[i + 1].active ? 'active' : '';
+            html += `<div class="track-line ${lineCls}"></div>`;
+          }
+        });
+        html += '</div>';
+        return html;
       }
       if (key === "email_sent") {
         return v == 1

@@ -291,40 +291,52 @@ function formatAutoSendReport(db, stats) {
     lines.push(`  合计：${stats.remaining.total.toLocaleString()} 封`);
   }
 
-  // 昨日邮件追踪指标
-  const { getEmailTrackingMetrics } = require("../db");
-  const yesterdayMetrics = getEmailTrackingMetrics(db, { days: 1 });
-  if (yesterdayMetrics.totalSent > 0) {
+  // 邮件追踪漏斗 — 昨日
+  const { getEmailTrackingMetrics, getRecentBouncesAndComplaints } = require("../db");
+  const yd = getEmailTrackingMetrics(db, { days: 1 });
+  if (yd.totalSent > 0) {
     lines.push(DIV);
-    lines.push(`📈 昨日邮件追踪`);
-    lines.push(`  送达率：${(yesterdayMetrics.deliveryRate * 100).toFixed(1)}% (${yesterdayMetrics.delivered}/${yesterdayMetrics.totalSent})`);
-    lines.push(`  打开率：${(yesterdayMetrics.openRate * 100).toFixed(1)}% (${yesterdayMetrics.opened}/${yesterdayMetrics.totalSent})`);
-    lines.push(`  点击率：${(yesterdayMetrics.clickRate * 100).toFixed(1)}% (${yesterdayMetrics.clicked}/${yesterdayMetrics.totalSent})`);
-
-    if (yesterdayMetrics.bounced > 0) {
-      lines.push(`  退信：${yesterdayMetrics.bounced} 封 ⚠️`);
-    }
-    if (yesterdayMetrics.complained > 0) {
-      lines.push(`  投诉：${yesterdayMetrics.complained} 封 🚨`);
+    lines.push(`📈 昨日邮件漏斗`);
+    lines.push(`  发送 ${yd.totalSent} → 送达 ${yd.delivered} → 打开 ${yd.opened}`);
+    lines.push(``);
+    lines.push(`  送达率 ${(yd.deliveryRate * 100).toFixed(0)}% ｜ 打开率 ${(yd.openRate * 100).toFixed(0)}%`);
+    if (yd.bounced > 0 || yd.complained > 0) {
+      const parts = [];
+      if (yd.bounced > 0) parts.push(`退信 ${yd.bounced}`);
+      if (yd.complained > 0) parts.push(`投诉 ${yd.complained}`);
+      lines.push(`  ⚠️ ${parts.join(' ｜ ')}`);
     }
   }
 
-  // 最近7日邮件追踪汇总
-  const weekMetrics = getEmailTrackingMetrics(db, { days: 7 });
-  if (weekMetrics.totalSent > 0) {
+  // 邮件追踪漏斗 — 最近7日
+  const wk = getEmailTrackingMetrics(db, { days: 7 });
+  if (wk.totalSent > 0) {
     lines.push(DIV);
-    lines.push(`📊 最近7日邮件追踪`);
-    lines.push(`  总发送：${weekMetrics.totalSent} 封`);
-    lines.push(`  送达率：${(weekMetrics.deliveryRate * 100).toFixed(1)}%`);
-    lines.push(`  打开率：${(weekMetrics.openRate * 100).toFixed(1)}%`);
-    lines.push(`  点击率：${(weekMetrics.clickRate * 100).toFixed(1)}%`);
+    lines.push(`📊 最近7日漏斗`);
+    lines.push(`  发送 ${wk.totalSent} → 送达 ${wk.delivered} → 打开 ${wk.opened}`);
+    lines.push(``);
+    lines.push(`  送达率 ${(wk.deliveryRate * 100).toFixed(0)}% ｜ 打开率 ${(wk.openRate * 100).toFixed(0)}%`);
+    if (wk.bounced > 0 || wk.complained > 0) {
+      const parts = [];
+      if (wk.bounced > 0) parts.push(`退信 ${wk.bounced} (${(wk.bounceRate * 100).toFixed(1)}%)`);
+      if (wk.complained > 0) parts.push(`投诉 ${wk.complained} (${(wk.complaintRate * 100).toFixed(1)}%)`);
+      lines.push(`  ⚠️ ${parts.join(' ｜ ')}`);
+    }
+  }
 
-    if (weekMetrics.bounced > 0) {
-      lines.push(`  退信：${weekMetrics.bounced} 封 (${(weekMetrics.bounceRate * 100).toFixed(1)}%)`);
-    }
-    if (weekMetrics.complained > 0) {
-      lines.push(`  投诉：${weekMetrics.complained} 封 (${(weekMetrics.complaintRate * 100).toFixed(1)}%)`);
-    }
+  // 问题邮件详情
+  const problemEmails = getRecentBouncesAndComplaints(db, 5);
+  if (problemEmails.length > 0) {
+    lines.push(DIV);
+    lines.push(`⚠️ 问题邮件（${problemEmails.length}）`);
+    problemEmails.forEach((e, idx) => {
+      const label = e.event_type === 'email.bounced' ? '退信' : '投诉';
+      const time = new Date(e.created_at).toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+      lines.push(`  ${idx + 1}. ${label} — ${e.org_name || '未知'} (${e.org_email || '无'}) ${time}`);
+    });
   }
 
   lines.push(DIV);

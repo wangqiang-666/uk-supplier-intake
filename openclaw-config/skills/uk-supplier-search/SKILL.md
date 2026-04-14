@@ -40,12 +40,18 @@ API 基地址：`http://uk-supplier-api:3000`
 ### 回复邮件相关问题时
 - 已发送/未发送数量必须来自 `/api/email-stats` 的 `sent`/`unsent` 字段
 - 回复信息必须来自 `/api/email/replies` 和 `/api/email/reply-stats`
+- **邮件追踪数据**（送达、打开、点击、退信、投诉）必须来自 `/api/email/tracking-metrics`
+- 追踪数据可能为 0（如 totalSent=0），此时**如实告知"暂无追踪数据"**，不要编造任何数字
+- 追踪漏斗格式汇报：`发送 X → 送达 Y → 打开 Z → 点击 W`，所有数字必须来自 API 返回值
 
 ### 禁止的回复行为
 - ❌ 不要把 `org_kept` 说成"新增"或"入库"，应说"采集保留"或"筛选通过"
 - ❌ 不要把多个数据源的 `org_kept` 加总后说"总计新增 X 条"
 - ❌ 不要使用"约"、"大概"等模糊词汇修饰从 API 获取的精确数字
 - ❌ 不要在没有调用对应 API 的情况下回答数字类问题
+- ❌ **严禁编造或猜测数据**：如果 API 返回为空、为 0、或调用失败，必须如实告知，绝对不能自行填写数字
+- ❌ 不要用历史记忆中的数字回答——每次都必须实时调用 API 获取最新数据
+- ❌ 不要把不同时间段的数据混淆（昨日 vs 7日 vs 30日，各有各的 API 参数）
 
 ---
 
@@ -216,6 +222,9 @@ curl -s "http://uk-supplier-api:3000/api/export-orgs?source=sra_api&search=londo
 | 邮件追踪情况 | /api/email/tracking-metrics |
 | 最近邮件打开率 | /api/email/tracking-metrics?days=7 |
 | 有多少邮件被退回 | /api/email/tracking-metrics |
+| 邮件漏斗/转化率 | /api/email/tracking-metrics?days=7（用漏斗格式：发送→送达→打开→点击） |
+| 昨天邮件情况 | /api/email/tracking-metrics?days=1 |
+| 最近一个月邮件 | /api/email/tracking-metrics?days=30 |
 | 最近采集情况 | /api/runs **+** /api/stats（必须同时调用） |
 | 今天爬取了多少 | /api/runs **+** /api/stats（必须同时调用） |
 | 手动抓一下 Law Society | POST /api/trigger-scrape |
@@ -225,3 +234,19 @@ curl -s "http://uk-supplier-api:3000/api/export-orgs?source=sra_api&search=londo
 | 取10个未发邮件的 | POST /api/email/action {query, 10} |
 | 有人回复邮件吗 | /api/email/replies + /api/email/reply-stats |
 | 回复了多少封 | /api/email/reply-stats |
+
+### 邮件追踪汇报格式
+
+当用户询问邮件追踪相关问题时，使用漏斗格式展示：
+
+```
+📊 邮件追踪漏斗（最近7日）
+发送 {totalSent} → 送达 {delivered} → 打开 {opened}
+
+送达率 {deliveryRate}% ｜ 打开率 {openRate}%
+
+（如有退信/投诉）
+⚠️ 退信 {bounced} ｜ 投诉 {complained}
+```
+
+**注意**：所有数字必须来自 `/api/email/tracking-metrics` 的实时返回值。如果 totalSent 为 0，回复"该时间段暂无追踪数据"。邮件中没有链接，所以不要汇报点击率（clicked/clickRate 字段忽略）。

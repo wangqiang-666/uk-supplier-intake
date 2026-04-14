@@ -25,7 +25,7 @@ function json(res, data, status = 200) {
   res.status(status).json(data);
 }
 
-const ORG_SORT = new Set(["id", "name", "external_id", "postcode", "city", "country", "source", "apostille_qualified", "created_at", "updated_at"]);
+const ORG_SORT = new Set(["id", "name", "external_id", "postcode", "city", "country", "source", "apostille_qualified", "created_at", "updated_at", "email_sent", "email_sent_at", "email_send_count"]);
 
 app.get("/api/sources", (req, res) => {
   const db = getDb();
@@ -91,22 +91,38 @@ app.get("/api/organisations", (req, res) => {
 
   const source = req.query.source ? String(req.query.source) : "";
   if (source) {
-    conditions.push("source = ?");
+    conditions.push("o.source = ?");
     params.push(source);
   }
 
   const search = req.query.search ? String(req.query.search).trim() : "";
   if (search && search.length >= 2) {
-    conditions.push("(name LIKE ? OR external_id LIKE ? OR email LIKE ? OR postcode LIKE ? OR city LIKE ?)");
+    conditions.push("(o.name LIKE ? OR o.external_id LIKE ? OR o.email LIKE ? OR o.postcode LIKE ? OR o.city LIKE ?)");
     const like = `%${search}%`;
     params.push(like, like, like, like, like);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM organisations ${where}`).get(...params).c;
+  const total = db.prepare(`SELECT COUNT(*) AS c FROM organisations o ${where}`).get(...params).c;
   const offset = (page - 1) * pageSize;
   const rows = db
-    .prepare(`SELECT * FROM organisations ${where} ORDER BY ${sort} ${order} LIMIT ? OFFSET ?`)
+    .prepare(`
+      SELECT
+        o.*,
+        MAX(CASE WHEN e.event_type = 'email.delivered' THEN 1 ELSE 0 END) as tracking_delivered,
+        MAX(CASE WHEN e.event_type = 'email.opened' THEN 1 ELSE 0 END) as tracking_opened,
+        MAX(CASE WHEN e.event_type = 'email.clicked' THEN 1 ELSE 0 END) as tracking_clicked,
+        MAX(CASE WHEN e.event_type = 'email.bounced' THEN 1 ELSE 0 END) as tracking_bounced,
+        MAX(CASE WHEN e.event_type = 'email.complained' THEN 1 ELSE 0 END) as tracking_complained,
+        (SELECT COUNT(*) FROM email_events WHERE organisation_id = o.id AND event_type = 'email.opened') as tracking_open_count,
+        (SELECT MAX(created_at) FROM email_events WHERE organisation_id = o.id AND event_type = 'email.opened') as tracking_last_opened_at
+      FROM organisations o
+      LEFT JOIN email_events e ON o.id = e.organisation_id
+      ${where}
+      GROUP BY o.id
+      ORDER BY o.${sort} ${order}
+      LIMIT ? OFFSET ?
+    `)
     .all(...params, pageSize, offset);
 
   json(res, { total, page, pageSize, totalPages: Math.ceil(total / pageSize), rows });

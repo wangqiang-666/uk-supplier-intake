@@ -10,8 +10,18 @@ const {
   pushComplaintAlert
 } = require("./wecom-notifier");
 
+// 状态递进链：拿到某状态时，前面的状态一定已经发生
+const PRECURSORS = {
+  sent:       [],
+  delivered:  ['sent'],
+  opened:     ['sent', 'delivered'],
+  clicked:    ['sent', 'delivered', 'opened'],
+  complained: ['sent', 'delivered'],
+  bounced:    [],  // 退信说明没送达，不补 delivered
+};
+
 /**
- * 查询单个邮件的状态并保存事件
+ * 查询单个邮件的状态并保存事件（自动补全前置状态）
  * @param {string} resendEmailId - Resend Email ID
  * @returns {Promise<{success: boolean, events: number}>}
  */
@@ -29,10 +39,11 @@ async function syncEmailStatus(resendEmailId) {
 
   try {
     // 调用 Resend API 查询邮件详情
-    const email = await resend.emails.get(resendEmailId);
+    const resp = await resend.emails.get(resendEmailId);
+    const email = resp.data || resp;   // SDK v6 返回 { data, error }
 
-    if (!email) {
-      console.warn(`⚠️ 邮件不存在: ${resendEmailId}`);
+    if (!email || resp.error) {
+      console.warn(`⚠️ 邮件不存在: ${resendEmailId}`, resp.error);
       return { success: false, events: 0 };
     }
 
@@ -40,25 +51,28 @@ async function syncEmailStatus(resendEmailId) {
     const org = getOrganisationByResendId(db, resendEmailId);
 
     // 根据 last_event 字段判断邮件状态
-    // Resend API 返回的 email 对象包含 last_event 字段
     const lastEvent = email.last_event;
 
     if (lastEvent) {
-      const eventType = `email.${lastEvent}`;
+      // 补全前置状态 + 当前状态
+      const allEvents = [...(PRECURSORS[lastEvent] || []), lastEvent];
 
-      // 尝试插入事件（幂等性由 UNIQUE 约束保证）
-      const inserted = insertEmailEvent(db, {
-        resend_email_id: resendEmailId,
-        organisation_id: org ? org.id : null,
-        event_type: eventType,
-        event_data: JSON.stringify(email),
-      });
+      for (const evt of allEvents) {
+        const inserted = insertEmailEvent(db, {
+          resend_email_id: resendEmailId,
+          organisation_id: org ? org.id : null,
+          event_type: `email.${evt}`,
+          event_data: JSON.stringify(email),
+        });
 
-      if (inserted) {
-        eventsAdded++;
-        console.log(`✓ 同步事件: ${eventType} - ${org ? org.name : resendEmailId}`);
+        if (inserted) {
+          eventsAdded++;
+          console.log(`✓ 同步事件: email.${evt} - ${org ? org.name : resendEmailId}`);
+        }
+      }
 
-        // 退信和投诉推送企业微信通知
+      // 退信和投诉推送企业微信通知（只在新增时推送）
+      if (eventsAdded > 0) {
         if (lastEvent === "bounced" && org) {
           await pushBounceAlert(db, org, email);
         } else if (lastEvent === "complained" && org) {
@@ -122,5 +136,6 @@ async function syncRecentEmailStatuses(days = 7) {
 
 module.exports = {
   syncEmailStatus,
-  syncRecentEmailStatuses
+  syncRecentEmailStatuses,
+  PRECURSORS,
 };
