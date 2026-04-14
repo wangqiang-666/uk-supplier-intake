@@ -9,7 +9,7 @@ const path = require("node:path");
 const INGEST_SCRIPT = path.resolve(__dirname, "ingest.js");
 
 // 任务运行状态（防止重叠执行）
-const running = { sra: false, lawsociety: false, facultyoffice: false, replyCheck: false, autoSend: false };
+const running = { sra: false, lawsociety: false, facultyoffice: false, replyCheck: false, autoSend: false, emailSync: false };
 
 function runIngest(source) {
   if (running[source]) {
@@ -74,6 +74,32 @@ function startScheduler() {
       console.error("[scheduler] 自动发送异常:", err.message);
     } finally {
       running.autoSend = false;
+    }
+  }, { timezone: "Europe/London" });
+
+  // 邮件状态同步 — 工作日每小时一次（9:00-18:00 Europe/London）
+  const { syncRecentEmailStatuses } = require("./lib/email-tracker");
+
+  console.log("  - 邮件状态同步: 英国工作日 09:07-18:07 每小时 (Europe/London)");
+
+  cron.schedule("7 9-18 * * 1-5", async () => {
+    if (running.emailSync) {
+      console.log("[scheduler] 邮件状态同步正在运行中，跳过本次");
+      return;
+    }
+    running.emailSync = true;
+    console.log("\n" + "=".repeat(50));
+    console.log("[scheduler] 开始邮件状态同步任务");
+    console.log("=".repeat(50));
+    try {
+      await syncRecentEmailStatuses(7);
+    } catch (err) {
+      console.error("[scheduler] 邮件状态同步失败:", err.message);
+    } finally {
+      running.emailSync = false;
+      console.log("=".repeat(50));
+      console.log("[scheduler] 邮件状态同步任务完成");
+      console.log("=".repeat(50) + "\n");
     }
   }, { timezone: "Europe/London" });
 

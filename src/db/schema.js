@@ -111,6 +111,22 @@ function initSchema(db) {
       created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
+
+    -- 邮件事件追踪表（用于记录 Resend 邮件的送达、打开、点击等事件）
+    CREATE TABLE IF NOT EXISTS email_events (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      resend_email_id TEXT NOT NULL,
+      organisation_id INTEGER REFERENCES organisations(id),
+      event_type      TEXT NOT NULL,
+      event_data      TEXT DEFAULT '{}',
+      created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+
+      UNIQUE(resend_email_id, event_type, created_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_event_resend_id ON email_events(resend_email_id);
+    CREATE INDEX IF NOT EXISTS idx_event_org_id ON email_events(organisation_id);
+    CREATE INDEX IF NOT EXISTS idx_event_type ON email_events(event_type);
   `);
 
   const insert = db.prepare(`

@@ -5,7 +5,7 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const path = require("node:path");
 
-const { getDb, closeDb, listSources, listRuns, getUnsentOrganisations, markOrganisationsSent, markOrganisationUnsent, insertEmailReply, getEmailReplies, getEmailReplyById, getReplyByMessageId, updateReplyReadStatus, getMonitorState, setMonitorState, matchOrgByEmail, markOrgReplied, getDailySendCount, incrementDailySendCount, nowLocal } = require("./db");
+const { getDb, closeDb, listSources, listRuns, getUnsentOrganisations, markOrganisationsSent, markOrganisationUnsent, insertEmailReply, getEmailReplies, getEmailReplyById, getReplyByMessageId, updateReplyReadStatus, getMonitorState, setMonitorState, matchOrgByEmail, markOrgReplied, getDailySendCount, incrementDailySendCount, getEmailEventsByOrgId, getEmailEventStats, getRecentBouncesAndComplaints, getEmailTrackingMetrics, nowLocal } = require("./db");
 const { startScheduler, runIngest } = require("./scheduler");
 const { sendBatch, replyToEmail, verifySmtp, isSmtpConfigured, getTestRecipients } = require("./lib/email-sender");
 const { checkForReplies, verifyImap, isImapConfigured, startImapMonitor, stopImapMonitor, getMonitorStatus } = require("./lib/email-monitor");
@@ -137,6 +137,62 @@ app.get("/api/email-stats", (req, res) => {
   const unsent = db.prepare(`SELECT COUNT(*) AS c FROM organisations ${where}`).get(...paramsUnsent).c;
 
   json(res, { sent, unsent });
+});
+
+// GET /api/email/tracking-metrics — 邮件追踪指标汇总（供 OpenClaw 查询）
+app.get("/api/email/tracking-metrics", (req, res) => {
+  try {
+    const db = getDb();
+    const days = req.query.days ? parseInt(req.query.days) : 7; // 默认最近7天
+
+    if (days < 1 || days > 90) {
+      return json(res, { error: "days 参数必须在 1-90 之间" }, 400);
+    }
+
+    const metrics = getEmailTrackingMetrics(db, { days });
+    json(res, metrics);
+  } catch (err) {
+    console.error("查询追踪指标失败:", err);
+    json(res, { error: err.message }, 500);
+  }
+});
+
+// GET /api/email/events/:orgId — 查询组织的邮件事件
+app.get("/api/email/events/:orgId", (req, res) => {
+  try {
+    const db = getDb();
+    const events = getEmailEventsByOrgId(db, req.params.orgId);
+    json(res, events);
+  } catch (err) {
+    json(res, { error: err.message }, 500);
+  }
+});
+
+// GET /api/email/tracking-stats — 邮件追踪统计（简单版）
+app.get("/api/email/tracking-stats", (req, res) => {
+  try {
+    const db = getDb();
+    const stats = getEmailEventStats(db);
+    const statsMap = {};
+    stats.forEach(s => {
+      statsMap[s.event_type] = s.count;
+    });
+    json(res, statsMap);
+  } catch (err) {
+    json(res, { error: err.message }, 500);
+  }
+});
+
+// GET /api/email/bounces — 最近的退信和投诉
+app.get("/api/email/bounces", (req, res) => {
+  try {
+    const db = getDb();
+    const limit = parseInt(req.query.limit) || 10;
+    const events = getRecentBouncesAndComplaints(db, limit);
+    json(res, events);
+  } catch (err) {
+    json(res, { error: err.message }, 500);
+  }
 });
 
 app.get("/api/quality-stats", (req, res) => {

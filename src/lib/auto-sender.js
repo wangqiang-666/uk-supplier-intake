@@ -20,6 +20,7 @@ const {
   markOrganisationsSent,
   getDailySendCount,
   incrementDailySendCount,
+  setOrganisationResendId,
   nowLocal,
 } = require("../db");
 
@@ -161,6 +162,11 @@ async function runAutoSend(db, options = {}) {
       results.push({ id: org.id, email: org.email, name: org.name, ...result });
 
       if (result.success) {
+        // 保存 Resend Email ID
+        if (result.messageId) {
+          setOrganisationResendId(db, org.id, result.messageId);
+        }
+
         // 立即标记，避免中途失败丢失状态
         markOrganisationsSent(db, [org.id]);
         incrementDailySendCount(db, 1);
@@ -204,7 +210,7 @@ async function runAutoSend(db, options = {}) {
     runtimeConfig.setAutoSendLastRun(db, stats);
 
     // 推送日报
-    const reportMsg = formatAutoSendReport(stats);
+    const reportMsg = formatAutoSendReport(db, stats);
     await sendToWecom(db, reportMsg);
     console.log(`[auto-sender] ━━━━━━ 完成: ${sent}/${total} 成功, 耗时 ${(elapsedMs / 1000).toFixed(1)}s ━━━━━━`);
 

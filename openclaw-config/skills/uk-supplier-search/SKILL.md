@@ -105,6 +105,14 @@ curl -s "http://uk-supplier-api:3000/api/email-stats?source=sra_api"
 ```
 返回：sent（已发送数）、unsent（未发送数）
 
+### 5.1 邮件追踪指标
+```bash
+curl -s "http://uk-supplier-api:3000/api/email/tracking-metrics"
+# 可指定天数（默认7天，最大90天）：
+curl -s "http://uk-supplier-api:3000/api/email/tracking-metrics?days=30"
+```
+返回：totalSent（发送总数）、delivered（送达数）、opened（打开数）、clicked（点击数）、bounced（退信数）、complained（投诉数）、deliveryRate（送达率）、openRate（打开率）、clickRate（点击率）、bounceRate（退信率）、complaintRate（投诉率）
+
 ---
 
 ## 三、数据源和采集管理
@@ -205,6 +213,9 @@ curl -s "http://uk-supplier-api:3000/api/export-orgs?source=sra_api&search=londo
 | 有多少供应商 | /api/stats |
 | 数据质量怎么样 | /api/quality-stats |
 | 邮件发了多少 | /api/email-stats |
+| 邮件追踪情况 | /api/email/tracking-metrics |
+| 最近邮件打开率 | /api/email/tracking-metrics?days=7 |
+| 有多少邮件被退回 | /api/email/tracking-metrics |
 | 最近采集情况 | /api/runs **+** /api/stats（必须同时调用） |
 | 今天爬取了多少 | /api/runs **+** /api/stats（必须同时调用） |
 | 手动抓一下 Law Society | POST /api/trigger-scrape |

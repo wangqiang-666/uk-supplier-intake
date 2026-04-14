@@ -254,7 +254,7 @@ async function notifyEmailReply(db, reply, org) {
 /**
  * 格式化自动发送日报通知
  */
-function formatAutoSendReport(stats) {
+function formatAutoSendReport(db, stats) {
   const DIV = "━━━━━━━━━━━━━━━━━━━━";
   const elapsed = stats.elapsedMs >= 60000
     ? `${Math.floor(stats.elapsedMs / 60000)} 分 ${Math.floor((stats.elapsedMs % 60000) / 1000)} 秒`
@@ -289,6 +289,42 @@ function formatAutoSendReport(stats) {
       lines.push(`  ${label}：${src.c.toLocaleString()} 封`);
     }
     lines.push(`  合计：${stats.remaining.total.toLocaleString()} 封`);
+  }
+
+  // 昨日邮件追踪指标
+  const { getEmailTrackingMetrics } = require("../db");
+  const yesterdayMetrics = getEmailTrackingMetrics(db, { days: 1 });
+  if (yesterdayMetrics.totalSent > 0) {
+    lines.push(DIV);
+    lines.push(`📈 昨日邮件追踪`);
+    lines.push(`  送达率：${(yesterdayMetrics.deliveryRate * 100).toFixed(1)}% (${yesterdayMetrics.delivered}/${yesterdayMetrics.totalSent})`);
+    lines.push(`  打开率：${(yesterdayMetrics.openRate * 100).toFixed(1)}% (${yesterdayMetrics.opened}/${yesterdayMetrics.totalSent})`);
+    lines.push(`  点击率：${(yesterdayMetrics.clickRate * 100).toFixed(1)}% (${yesterdayMetrics.clicked}/${yesterdayMetrics.totalSent})`);
+
+    if (yesterdayMetrics.bounced > 0) {
+      lines.push(`  退信：${yesterdayMetrics.bounced} 封 ⚠️`);
+    }
+    if (yesterdayMetrics.complained > 0) {
+      lines.push(`  投诉：${yesterdayMetrics.complained} 封 🚨`);
+    }
+  }
+
+  // 最近7日邮件追踪汇总
+  const weekMetrics = getEmailTrackingMetrics(db, { days: 7 });
+  if (weekMetrics.totalSent > 0) {
+    lines.push(DIV);
+    lines.push(`📊 最近7日邮件追踪`);
+    lines.push(`  总发送：${weekMetrics.totalSent} 封`);
+    lines.push(`  送达率：${(weekMetrics.deliveryRate * 100).toFixed(1)}%`);
+    lines.push(`  打开率：${(weekMetrics.openRate * 100).toFixed(1)}%`);
+    lines.push(`  点击率：${(weekMetrics.clickRate * 100).toFixed(1)}%`);
+
+    if (weekMetrics.bounced > 0) {
+      lines.push(`  退信：${weekMetrics.bounced} 封 (${(weekMetrics.bounceRate * 100).toFixed(1)}%)`);
+    }
+    if (weekMetrics.complained > 0) {
+      lines.push(`  投诉：${weekMetrics.complained} 封 (${(weekMetrics.complaintRate * 100).toFixed(1)}%)`);
+    }
   }
 
   lines.push(DIV);
@@ -455,6 +491,42 @@ function isCallbackConfigured() {
   return !!(CALLBACK_TOKEN && CALLBACK_ENCODING_KEY);
 }
 
+/**
+ * 推送邮件退信提醒
+ */
+async function pushBounceAlert(db, org, bounceData) {
+  const reason = bounceData.bounce?.type || "未知原因";
+  const message = `
+📧 邮件退信提醒
+━━━━━━━━━━━━━━━━
+供应商: ${org.name}
+邮箱: ${org.email}
+退信原因: ${reason}
+时间: ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
+━━━━━━━━━━━━━━━━
+建议: 检查邮箱地址是否有效
+  `.trim();
+
+  await sendToWecom(db, message);
+}
+
+/**
+ * 推送垃圾邮件投诉提醒
+ */
+async function pushComplaintAlert(db, org, complaintData) {
+  const message = `
+⚠️ 垃圾邮件投诉
+━━━━━━━━━━━━━━━━
+供应商: ${org.name}
+邮箱: ${org.email}
+时间: ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
+━━━━━━━━━━━━━━━━
+建议: 暂停向该邮箱发送邮件
+  `.trim();
+
+  await sendToWecom(db, message);
+}
+
 module.exports = {
   notifyEmailReply,
   sendToWecom,
@@ -463,6 +535,8 @@ module.exports = {
   formatReplyNotification,
   formatAutoSendReport,
   formatAutoSendAlert,
+  pushBounceAlert,
+  pushComplaintAlert,
   // 回调相关
   handleCallbackVerify,
   handleCallbackMessage,

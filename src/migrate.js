@@ -51,6 +51,18 @@ function runMigrations(db) {
     console.log("+ 添加字段 reply_received");
   }
 
+  // 添加 Resend Email ID 字段用于邮件追踪
+  if (!cols.includes("resend_email_id")) {
+    db.exec("ALTER TABLE organisations ADD COLUMN resend_email_id TEXT");
+    console.log("+ 添加字段 resend_email_id");
+  }
+
+  // 添加索引以加速邮件追踪查询
+  if (!indexes.includes("idx_org_resend_email_id")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_org_resend_email_id ON organisations(resend_email_id)");
+    console.log("+ 添加索引 idx_org_resend_email_id");
+  }
+
   // 确保 email_replies 和 email_monitor_state 表存在
   db.exec(`
     CREATE TABLE IF NOT EXISTS email_replies (

@@ -270,6 +270,156 @@ function incrementDailySendCount(db, count = 1) {
   setMonitorState(db, key, String(current + count));
 }
 
+// ──────── Email Tracking 操作 ────────
+
+function getSettingValue(db, key) {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  return row ? row.value : null;
+}
+
+function setOrganisationResendId(db, orgId, resendEmailId) {
+  db.prepare(`
+    UPDATE organisations
+    SET resend_email_id = ?
+    WHERE id = ?
+  `).run(resendEmailId, orgId);
+}
+
+function getOrganisationByResendId(db, resendEmailId) {
+  return db.prepare(`
+    SELECT * FROM organisations
+    WHERE resend_email_id = ?
+  `).get(resendEmailId);
+}
+
+function insertEmailEvent(db, event) {
+  try {
+    db.prepare(`
+      INSERT INTO email_events (resend_email_id, organisation_id, event_type, event_data)
+      VALUES (@resend_email_id, @organisation_id, @event_type, @event_data)
+    `).run(event);
+    return true;
+  } catch (err) {
+    if (err.message.includes("UNIQUE constraint")) {
+      return false; // 重复事件，忽略
+    }
+    throw err;
+  }
+}
+
+function getEmailEventsByOrgId(db, orgId) {
+  return db.prepare(`
+    SELECT * FROM email_events
+    WHERE organisation_id = ?
+    ORDER BY created_at DESC
+  `).all(orgId);
+}
+
+function getEmailEventStats(db) {
+  return db.prepare(`
+    SELECT
+      event_type,
+      COUNT(*) as count
+    FROM email_events
+    GROUP BY event_type
+  `).all();
+}
+
+function getRecentBouncesAndComplaints(db, limit = 10) {
+  return db.prepare(`
+    SELECT
+      e.*,
+      o.name as org_name,
+      o.email as org_email
+    FROM email_events e
+    LEFT JOIN organisations o ON e.organisation_id = o.id
+    WHERE e.event_type IN ('email.bounced', 'email.complained')
+    ORDER BY e.created_at DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+function getEmailTrackingMetrics(db, options = {}) {
+  const { days = 1 } = options;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+  const cutoff = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
+
+  // 统计最近N天发送的邮件总数（有 resend_email_id 的）
+  const totalSent = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM organisations
+    WHERE resend_email_id IS NOT NULL
+      AND email_sent_at >= ?
+  `).get(cutoff).count;
+
+  if (totalSent === 0) {
+    return {
+      totalSent: 0,
+      delivered: 0,
+      opened: 0,
+      clicked: 0,
+      bounced: 0,
+      complained: 0,
+      deliveryRate: 0,
+      openRate: 0,
+      clickRate: 0,
+      bounceRate: 0,
+      complaintRate: 0,
+    };
+  }
+
+  // 统计各类事件的唯一邮件数
+  const delivered = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM email_events
+    WHERE event_type = 'email.delivered'
+      AND created_at >= ?
+  `).get(cutoff).count;
+
+  const opened = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM email_events
+    WHERE event_type = 'email.opened'
+      AND created_at >= ?
+  `).get(cutoff).count;
+
+  const clicked = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM email_events
+    WHERE event_type = 'email.clicked'
+      AND created_at >= ?
+  `).get(cutoff).count;
+
+  const bounced = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM email_events
+    WHERE event_type = 'email.bounced'
+      AND created_at >= ?
+  `).get(cutoff).count;
+
+  const complained = db.prepare(`
+    SELECT COUNT(DISTINCT resend_email_id) as count
+    FROM email_events
+    WHERE event_type = 'email.complained'
+      AND created_at >= ?
+  `).get(cutoff).count;
+
+  return {
+    totalSent,
+    delivered,
+    opened,
+    clicked,
+    bounced,
+    complained,
+    deliveryRate: totalSent > 0 ? (delivered / totalSent) : 0,
+    openRate: totalSent > 0 ? (opened / totalSent) : 0,
+    clickRate: totalSent > 0 ? (clicked / totalSent) : 0,
+    bounceRate: totalSent > 0 ? (bounced / totalSent) : 0,
+    complaintRate: totalSent > 0 ? (complained / totalSent) : 0,
+  };
+}
+
 module.exports = {
   getDb,
   closeDb,
@@ -295,6 +445,15 @@ module.exports = {
   markOrganisationUnsent,
   getDailySendCount,
   incrementDailySendCount,
+  // Email tracking
+  getSettingValue,
+  setOrganisationResendId,
+  getOrganisationByResendId,
+  insertEmailEvent,
+  getEmailEventsByOrgId,
+  getEmailEventStats,
+  getRecentBouncesAndComplaints,
+  getEmailTrackingMetrics,
   nowLocal,
 };
 
