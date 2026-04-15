@@ -308,8 +308,8 @@ function formatAutoSendReport(db, stats) {
     }
   }
 
-  // 邮件追踪漏斗 — 最近7日
-  const wk = getEmailTrackingMetrics(db, { days: 7 });
+  // 邮件追踪漏斗 — 最近7日（不含今天，因为刚发完的邮件事件尚未从 Resend 同步）
+  const wk = getEmailTrackingMetrics(db, { days: 7, beforeToday: true });
   if (wk.totalSent > 0) {
     lines.push(DIV);
     lines.push(`📊 最近7日漏斗`);
@@ -330,7 +330,9 @@ function formatAutoSendReport(db, stats) {
     lines.push(DIV);
     lines.push(`⚠️ 问题邮件（${problemEmails.length}）`);
     problemEmails.forEach((e, idx) => {
-      const label = e.event_type === 'email.bounced' ? '退信' : '投诉';
+      const label = e.event_type === 'email.bounced' ? '退信'
+        : e.event_type === 'email.suppressed' ? '压制'
+        : '投诉';
       const time = new Date(e.created_at).toLocaleString('zh-CN', {
         timeZone: 'Asia/Shanghai',
         month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
@@ -504,19 +506,25 @@ function isCallbackConfigured() {
 }
 
 /**
- * 推送邮件退信提醒
+ * 推送邮件退信/压制提醒
  */
 async function pushBounceAlert(db, org, bounceData) {
-  const reason = bounceData.bounce?.type || "未知原因";
+  // Resend emails.get() 返回 { last_event: "bounced"|"suppressed", ... }
+  // 没有 bounce.type 子字段，用 last_event 区分类型
+  const lastEvent = bounceData.last_event || "bounced";
+  const label = lastEvent === "suppressed" ? "被压制（Suppressed）" : "退信（Bounced）";
+  const advice = lastEvent === "suppressed"
+    ? "该地址可能之前退信过，已被 Resend 自动压制，建议核实后联系 Resend 解除"
+    : "检查邮箱地址是否有效";
   const message = `
 📧 邮件退信提醒
 ━━━━━━━━━━━━━━━━
 供应商: ${org.name}
 邮箱: ${org.email}
-退信原因: ${reason}
+退信原因: ${label}
 时间: ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
 ━━━━━━━━━━━━━━━━
-建议: 检查邮箱地址是否有效
+建议: ${advice}
   `.trim();
 
   await sendToWecom(db, message);

@@ -86,9 +86,31 @@ function extractSalutation(name) {
 }
 
 /**
+ * 将纯文本邮件正文转为简洁 HTML（保留专业感，Resend 可注入追踪像素）
+ */
+function textToHtml(text) {
+  // 按空行分段，每段用 <p> 包裹；段内换行用 <br>
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const paragraphs = escaped.split(/\n{2,}/);
+  const body = paragraphs
+    .map(p => `<p style="margin:0 0 12px 0;">${p.trim().replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#333;">
+${body}
+</body></html>`;
+}
+
+/**
  * 渲染邮件模板
  * @param {Object} org - organisation 数据库记录
- * @returns {{ subject: string, body: string }}
+ * @returns {{ subject: string, body: string, html: string }}
  */
 function renderTemplate(org) {
   const vars = {
@@ -104,10 +126,12 @@ function renderTemplate(org) {
 
   const template = loadTemplate();
   const subjectTemplate = cfg.email.subject || DEFAULT_SUBJECT;
+  const body = replaceVars(template, vars);
 
   return {
     subject: replaceVars(subjectTemplate, vars),
-    body: replaceVars(template, vars),
+    body,
+    html: textToHtml(body),
   };
 }
 

@@ -121,13 +121,48 @@ function initSchema(db) {
       event_data      TEXT DEFAULT '{}',
       created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
 
-      UNIQUE(resend_email_id, event_type, created_at)
+      UNIQUE(resend_email_id, event_type)
     );
 
     CREATE INDEX IF NOT EXISTS idx_event_resend_id ON email_events(resend_email_id);
     CREATE INDEX IF NOT EXISTS idx_event_org_id ON email_events(organisation_id);
     CREATE INDEX IF NOT EXISTS idx_event_type ON email_events(event_type);
   `);
+
+  // 迁移：将 email_events 的 UNIQUE 约束从 (resend_email_id, event_type, created_at)
+  // 改为 (resend_email_id, event_type)，防止同一事件重复入库导致重复推送通知
+  try {
+    const tableInfo = db.prepare(`
+      SELECT sql FROM sqlite_master WHERE type='table' AND name='email_events'
+    `).get();
+    // 只有当表存在且含有旧版 UNIQUE(..., created_at) 时才迁移
+    if (tableInfo && /UNIQUE\s*\([^)]*created_at[^)]*\)/i.test(tableInfo.sql)) {
+      db.exec(`
+        BEGIN;
+        CREATE TABLE email_events_new (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          resend_email_id TEXT NOT NULL,
+          organisation_id INTEGER REFERENCES organisations(id),
+          event_type      TEXT NOT NULL,
+          event_data      TEXT DEFAULT '{}',
+          created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          UNIQUE(resend_email_id, event_type)
+        );
+        INSERT OR IGNORE INTO email_events_new (resend_email_id, organisation_id, event_type, event_data, created_at)
+          SELECT resend_email_id, organisation_id, event_type, event_data, MIN(created_at)
+          FROM email_events GROUP BY resend_email_id, event_type;
+        DROP TABLE email_events;
+        ALTER TABLE email_events_new RENAME TO email_events;
+        CREATE INDEX IF NOT EXISTS idx_event_resend_id ON email_events(resend_email_id);
+        CREATE INDEX IF NOT EXISTS idx_event_org_id ON email_events(organisation_id);
+        CREATE INDEX IF NOT EXISTS idx_event_type ON email_events(event_type);
+        COMMIT;
+      `);
+      console.log('[schema] email_events UNIQUE 约束已迁移: (resend_email_id, event_type)');
+    }
+  } catch (e) {
+    console.warn('[schema] email_events 迁移失败:', e.message);
+  }
 
   const insert = db.prepare(`
     INSERT OR IGNORE INTO sources (code, name, country, website)

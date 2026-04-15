@@ -333,25 +333,45 @@ function getRecentBouncesAndComplaints(db, limit = 10) {
       o.email as org_email
     FROM email_events e
     LEFT JOIN organisations o ON e.organisation_id = o.id
-    WHERE e.event_type IN ('email.bounced', 'email.complained')
+    WHERE e.event_type IN ('email.bounced', 'email.suppressed', 'email.complained')
     ORDER BY e.created_at DESC
     LIMIT ?
   `).all(limit);
 }
 
 function getEmailTrackingMetrics(db, options = {}) {
-  const { days = 1 } = options;
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - days);
-  const cutoff = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
+  const { days = 1, beforeToday = false } = options;
+  // 所有 email_sent_at 均为北京时间，这里也用北京时间的日期边界
+  const today = nowLocal().slice(0, 10); // "YYYY-MM-DD"
 
-  // 统计最近N天发送的邮件总数（有 resend_email_id 的）
+  let cutoffStart, cutoffEnd;
+  if (days === 1) {
+    // "昨日" = 昨天 00:00:00 ~ 昨天 23:59:59（不含今天）
+    const yesterday = new Date(today + 'T00:00:00+08:00');
+    yesterday.setDate(yesterday.getDate() - 1);
+    const ydStr = yesterday.toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-").slice(0, 10);
+    cutoffStart = ydStr + ' 00:00:00';
+    cutoffEnd = today + ' 00:00:00';
+  } else {
+    // "最近N日"
+    const startDay = new Date(today + 'T00:00:00+08:00');
+    startDay.setDate(startDay.getDate() - days);
+    cutoffStart = startDay.toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-").slice(0, 10) + ' 00:00:00';
+    // beforeToday=true 时截止到今天 00:00（不含今天，用于日报推送——刚发的邮件事件尚未同步）
+    cutoffEnd = beforeToday ? today + ' 00:00:00' : null;
+  }
+
+  const endClause = cutoffEnd ? 'AND o.email_sent_at < ?' : '';
+  const endParams = cutoffEnd ? [cutoffEnd] : [];
+
+  // 统计期间发送的邮件总数（有 resend_email_id 的）
   const totalSent = db.prepare(`
     SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM organisations
-    WHERE resend_email_id IS NOT NULL
-      AND email_sent_at >= ?
-  `).get(cutoff).count;
+    FROM organisations o
+    WHERE o.resend_email_id IS NOT NULL
+      AND o.email_sent_at >= ?
+      ${endClause}
+  `).get(cutoffStart, ...endParams).count;
 
   if (totalSent === 0) {
     return {
@@ -369,41 +389,26 @@ function getEmailTrackingMetrics(db, options = {}) {
     };
   }
 
-  // 统计各类事件的唯一邮件数
-  const delivered = db.prepare(`
-    SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM email_events
-    WHERE event_type = 'email.delivered'
-      AND created_at >= ?
-  `).get(cutoff).count;
+  // 事件统计：通过 resend_email_id 关联到 organisations，
+  // 按 email_sent_at 筛选"属于该时间窗口的邮件"的所有事件（不管事件本身何时入库）
+  const countEvent = (types) => {
+    const typePlaceholders = types.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT COUNT(DISTINCT e.resend_email_id) as count
+      FROM email_events e
+      JOIN organisations o ON e.resend_email_id = o.resend_email_id
+      WHERE e.event_type IN (${typePlaceholders})
+        AND o.email_sent_at >= ?
+        ${endClause}
+    `).get(...types, cutoffStart, ...endParams).count;
+  };
 
-  const opened = db.prepare(`
-    SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM email_events
-    WHERE event_type = 'email.opened'
-      AND created_at >= ?
-  `).get(cutoff).count;
-
-  const clicked = db.prepare(`
-    SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM email_events
-    WHERE event_type = 'email.clicked'
-      AND created_at >= ?
-  `).get(cutoff).count;
-
-  const bounced = db.prepare(`
-    SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM email_events
-    WHERE event_type = 'email.bounced'
-      AND created_at >= ?
-  `).get(cutoff).count;
-
-  const complained = db.prepare(`
-    SELECT COUNT(DISTINCT resend_email_id) as count
-    FROM email_events
-    WHERE event_type = 'email.complained'
-      AND created_at >= ?
-  `).get(cutoff).count;
+  const delivered = countEvent(['email.delivered']);
+  const opened = countEvent(['email.opened']);
+  const clicked = countEvent(['email.clicked']);
+  // bounced + suppressed 统一归为退信
+  const bounced = countEvent(['email.bounced', 'email.suppressed']);
+  const complained = countEvent(['email.complained']);
 
   return {
     totalSent,

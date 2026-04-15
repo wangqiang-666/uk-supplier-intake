@@ -131,6 +131,11 @@ async function sendViaResend(to, subject, body, options = {}) {
   const replyTo = cfg.email.replyTo || fromAddr;
   const emailData = { from, to, subject, text: body, replyTo: [replyTo] };
 
+  // 传入 html 以启用 Resend 打开率追踪（追踪像素需要 HTML）
+  if (options.html) {
+    emailData.html = options.html;
+  }
+
   if (options.inReplyTo) {
     emailData.headers = {
       "In-Reply-To": options.inReplyTo,
@@ -159,6 +164,10 @@ async function sendViaSmtp(to, subject, body, options = {}) {
   const replyTo = cfg.email.replyTo || fromAddr;
   const mailOptions = { from, to, subject, text: body, replyTo };
 
+  if (options.html) {
+    mailOptions.html = options.html;
+  }
+
   if (options.inReplyTo) {
     mailOptions.inReplyTo = options.inReplyTo;
     mailOptions.references = options.inReplyTo;
@@ -173,16 +182,16 @@ async function sendViaSmtp(to, subject, body, options = {}) {
  */
 async function sendEmail(org) {
   try {
-    const { subject, body } = renderTemplate(org);
+    const { subject, body, html } = renderTemplate(org);
 
     const testRecipients = getTestRecipients();
     const to = testRecipients ? testRecipients.join(", ") : org.email;
 
     let result;
     if (isResendConfigured()) {
-      result = await sendViaResend(to, subject, body);
+      result = await sendViaResend(to, subject, body, { html });
     } else {
-      result = await sendViaSmtp(to, subject, body);
+      result = await sendViaSmtp(to, subject, body, { html });
     }
 
     return { success: true, messageId: result.messageId, actualTo: to };

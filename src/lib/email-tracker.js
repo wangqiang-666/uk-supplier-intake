@@ -3,6 +3,7 @@ const {
   getDb,
   insertEmailEvent,
   getOrganisationByResendId,
+  nowLocal,
 } = require("../db");
 const cfg = require("../config/email-config");
 const {
@@ -18,6 +19,7 @@ const PRECURSORS = {
   clicked:    ['sent', 'delivered', 'opened'],
   complained: ['sent', 'delivered'],
   bounced:    [],  // 退信说明没送达，不补 delivered
+  suppressed: [],  // 被 Resend 压制，不补 delivered
 };
 
 /**
@@ -57,6 +59,10 @@ async function syncEmailStatus(resendEmailId) {
       // 补全前置状态 + 当前状态
       const allEvents = [...(PRECURSORS[lastEvent] || []), lastEvent];
 
+      // 精确跟踪关键事件（退信/压制/投诉）是否为"本次新增"，
+      // 只有新增时才推送通知，避免每小时同步时重复推送
+      let alertEventAdded = false;
+
       for (const evt of allEvents) {
         const inserted = insertEmailEvent(db, {
           resend_email_id: resendEmailId,
@@ -68,14 +74,17 @@ async function syncEmailStatus(resendEmailId) {
         if (inserted) {
           eventsAdded++;
           console.log(`✓ 同步事件: email.${evt} - ${org ? org.name : resendEmailId}`);
+          if (evt === 'bounced' || evt === 'suppressed' || evt === 'complained') {
+            alertEventAdded = true;
+          }
         }
       }
 
-      // 退信和投诉推送企业微信通知（只在新增时推送）
-      if (eventsAdded > 0) {
-        if (lastEvent === "bounced" && org) {
+      // 只有关键事件本次首次入库时才推送（依赖 UNIQUE(resend_email_id, event_type) 去重）
+      if (alertEventAdded && org) {
+        if (lastEvent === "bounced" || lastEvent === "suppressed") {
           await pushBounceAlert(db, org, email);
-        } else if (lastEvent === "complained" && org) {
+        } else if (lastEvent === "complained") {
           await pushComplaintAlert(db, org, email);
         }
       }
@@ -96,9 +105,10 @@ async function syncRecentEmailStatuses(days = 7) {
   const db = getDb();
 
   // 查询最近N天发送的、有 resend_email_id 的邮件
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - days);
-  const cutoff = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
+  // email_sent_at 存储为北京时间，cutoff 也需要用北京时间
+  const now = new Date(nowLocal().replace(' ', 'T') + '+08:00');
+  now.setDate(now.getDate() - days);
+  const cutoff = now.toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).replace(/\//g, "-");
 
   const emails = db.prepare(`
     SELECT DISTINCT resend_email_id
