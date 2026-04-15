@@ -35,11 +35,7 @@ Information on fee settlement and the safeguards we provide
 I look forward to the possibility of establishing a longterm, stable and mutually beneficial partnership with you, and working together to deliver highquality notarisation and legalisation services to clients worldwide.
 Kind regards,
 Edward
-Global Digital Platform for Notarisation & Legalisation
-Email: [Your Email]
-Phone: [Your Phone Number]
-WhatsApp: [Your WhatsApp]
-Website: [Your Website]`;
+Global Digital Platform for Notarisation & Legalisation`;
 
 const DEFAULT_SUBJECT = "Invitation to Join a Global Notarisation Platform and Expand Your International Practice";
 
