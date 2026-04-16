@@ -136,11 +136,16 @@ async function sendViaResend(to, subject, body, options = {}) {
     emailData.html = options.html;
   }
 
+  // List-Unsubscribe 头 — Gmail/Outlook 要求商业邮件必须带此头，否则易进垃圾箱
+  const unsubEmail = replyTo;
+  emailData.headers = {
+    "List-Unsubscribe": `<mailto:${unsubEmail}?subject=Unsubscribe>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+
   if (options.inReplyTo) {
-    emailData.headers = {
-      "In-Reply-To": options.inReplyTo,
-      "References": options.inReplyTo,
-    };
+    emailData.headers["In-Reply-To"] = options.inReplyTo;
+    emailData.headers["References"] = options.inReplyTo;
   }
 
   const { data, error } = await resend.emails.send(emailData);
@@ -167,6 +172,13 @@ async function sendViaSmtp(to, subject, body, options = {}) {
   if (options.html) {
     mailOptions.html = options.html;
   }
+
+  // List-Unsubscribe 头
+  const unsubEmail = replyTo;
+  mailOptions.headers = {
+    "List-Unsubscribe": `<mailto:${unsubEmail}?subject=Unsubscribe>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
 
   if (options.inReplyTo) {
     mailOptions.inReplyTo = options.inReplyTo;

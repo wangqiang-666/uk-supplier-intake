@@ -77,12 +77,12 @@ function startScheduler() {
     }
   }, { timezone: "Europe/London" });
 
-  // 邮件状态同步 — 工作日每小时一次（9:00-18:00 Europe/London）
+  // 邮件状态同步 — 每天每小时一次（全天覆盖，包括周末）
   const { syncRecentEmailStatuses } = require("./lib/email-tracker");
 
-  console.log("  - 邮件状态同步: 英国工作日 09:07-18:07 每小时 (Europe/London)");
+  console.log("  - 邮件状态同步: 每天 08:07-22:07 每小时 (Europe/London)，含周末");
 
-  cron.schedule("7 9-18 * * 1-5", async () => {
+  cron.schedule("7 8-22 * * *", async () => {
     if (running.emailSync) {
       console.log("[scheduler] 邮件状态同步正在运行中，跳过本次");
       return;
