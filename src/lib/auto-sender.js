@@ -39,10 +39,10 @@ function sleep(ms) {
  * 发送单封邮件，失败自动重试
  * @returns {Promise<{success, messageId?, error?, attempts}>}
  */
-async function sendEmailWithRetry(org) {
+async function sendEmailWithRetry(org, db) {
   let lastError = null;
   for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
-    const result = await sendEmail(org);
+    const result = await sendEmail(org, db);
     if (result.success) {
       return { ...result, attempts: attempt };
     }
@@ -158,7 +158,7 @@ async function runAutoSend(db, options = {}) {
 
     for (let i = 0; i < unsent.length; i++) {
       const org = unsent[i];
-      const result = await sendEmailWithRetry(org);
+      const result = await sendEmailWithRetry(org, db);
       results.push({ id: org.id, email: org.email, name: org.name, ...result });
 
       if (result.success) {

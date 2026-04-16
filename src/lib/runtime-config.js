@@ -155,6 +155,22 @@ function setAutoSendLastRun(db, info) {
   _setSetting(db, "autosend.last_run", JSON.stringify(info));
 }
 
+// ──────── 邮件模板配置 ────────
+
+function getEmailTemplate(db) {
+  const subject = _getSetting(db, "email.subject", null);
+  const body = _getSetting(db, "email.body", null);
+  return {
+    subject: subject || cfg.email.subject,
+    body: body || null, // null 表示使用内置默认模板
+  };
+}
+
+function setEmailTemplate(db, { subject, body }) {
+  if (subject !== undefined) _setSetting(db, "email.subject", subject);
+  if (body !== undefined) _setSetting(db, "email.body", body);
+}
+
 // ──────── 首次启动种子数据 ────────
 
 /**
@@ -186,6 +202,12 @@ function seedDefaultsFromEnv(db) {
     console.log("[runtime-config] 已初始化自动发送配置 (默认关闭, 每日 100 封)");
   }
 
+  // Seed 邮件模板
+  if (!_getSetting(db, "email.subject", null)) {
+    _setSetting(db, "email.subject", cfg.email.subject);
+    console.log("[runtime-config] 已初始化邮件标题模板到 settings 表");
+  }
+
   // Seed 默认负责人
   const recipientCount = db.prepare("SELECT COUNT(*) AS c FROM notify_recipients").get().c;
   if (recipientCount === 0) {
@@ -212,6 +234,8 @@ module.exports = {
   getImapConfig,
   setImapConfig,
   getReplyToEmail,
+  getEmailTemplate,
+  setEmailTemplate,
   listRecipients,
   getEnabledRecipients,
   getRecipientById,

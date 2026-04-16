@@ -338,7 +338,7 @@ app.post("/api/email/send-batch", async (req, res) => {
   if (dryRun) {
     const { renderTemplate } = require("./lib/email-template");
     const previews = rows.map((org) => {
-      const { subject, body } = renderTemplate(org);
+      const { subject, body } = renderTemplate(org, db);
       return { id: org.id, email: org.email, name: org.name, subject, body_preview: body.slice(0, 200) };
     });
     return json(res, { dryRun: true, count: previews.length, previews });
@@ -349,6 +349,7 @@ app.post("/api/email/send-batch", async (req, res) => {
   const failedIds = [];
 
   const result = await sendBatch(rows, {
+    db,
     getDailyCount: () => getDailySendCount(db),
     onSent: (org, sendResult) => {
       if (sendResult.success) {
@@ -679,6 +680,72 @@ app.post("/api/email/auto-send/trigger", async (req, res) => {
   // 手动触发时 force=true，即使开关关闭也可以执行
   const result = await runAutoSend(db, { force: true });
   json(res, result);
+});
+
+// GET /api/settings/email-template — 获取当前邮件模板
+app.get("/api/settings/email-template", (req, res) => {
+  const db = getDb();
+  const tpl = runtimeConfig.getEmailTemplate(db);
+  const { DEFAULT_TEMPLATE, DEFAULT_SUBJECT } = require("./lib/email-template");
+
+  json(res, {
+    subject: tpl.subject || DEFAULT_SUBJECT,
+    body: tpl.body || DEFAULT_TEMPLATE,
+    variables: [
+      { key: "salutation", desc: "称呼 (Mr Smith / Sir/Madam)" },
+      { key: "org_name", desc: "机构全名" },
+      { key: "org_city", desc: "城市 (无则显示 your area)" },
+      { key: "org_postcode", desc: "邮编" },
+      { key: "org_source", desc: "数据来源" },
+      { key: "work_areas", desc: "业务领域" },
+      { key: "from_name", desc: "发件人姓名" },
+      { key: "from_email", desc: "发件人邮箱" },
+    ],
+  });
+});
+
+// PUT /api/settings/email-template — 保存邮件模板并返回预览
+app.put("/api/settings/email-template", (req, res) => {
+  const db = getDb();
+  const { subject, body } = req.body || {};
+
+  if (subject !== undefined) {
+    if (typeof subject !== "string" || subject.trim().length === 0) {
+      return json(res, { error: "标题不能为空" }, 400);
+    }
+  }
+  if (body !== undefined) {
+    if (typeof body !== "string" || body.trim().length === 0) {
+      return json(res, { error: "正文不能为空" }, 400);
+    }
+  }
+
+  runtimeConfig.setEmailTemplate(db, {
+    subject: subject !== undefined ? subject.trim() : undefined,
+    body: body !== undefined ? body.trim() : undefined,
+  });
+
+  // 用示例数据渲染预览
+  const { renderTemplate } = require("./lib/email-template");
+  const sampleOrg = {
+    name: "Mr J Smith (Example Notary Services)",
+    email: "example@test.com",
+    city: "London",
+    postcode: "EC1A 1BB",
+    source: "example",
+    work_areas: '["Notarisation","Legalisation"]',
+  };
+  const preview = renderTemplate(sampleOrg, db);
+
+  json(res, {
+    success: true,
+    saved: { subject: subject !== undefined, body: body !== undefined },
+    preview: {
+      subject: preview.subject,
+      body: preview.body,
+      html: preview.html,
+    },
+  });
 });
 
 app.get("/api/export-orgs", (req, res) => {

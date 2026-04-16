@@ -33,7 +33,7 @@ const config = {
   email: {
     fromName: process.env.EMAIL_FROM_NAME || "iNotary",
     fromAddress: process.env.EMAIL_FROM_ADDRESS || "partnerships@inotary.io",
-    subject: process.env.EMAIL_SUBJECT || "Invitation to Join a Global Notarisation Platform and Expand Your International Practice",
+    subject: process.env.EMAIL_SUBJECT || "International clients looking for a notary in {{org_city}}",
     replyTo: process.env.EMAIL_REPLY_TO || "jacky@inotary.com.hk",
     batchSize: Number(process.env.EMAIL_BATCH_SIZE || 20),
     intervalMs: Number(process.env.EMAIL_INTERVAL_MS || 2000),

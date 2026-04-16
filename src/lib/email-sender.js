@@ -180,9 +180,9 @@ async function sendViaSmtp(to, subject, body, options = {}) {
 /**
  * 发送单封邮件
  */
-async function sendEmail(org) {
+async function sendEmail(org, db) {
   try {
-    const { subject, body, html } = renderTemplate(org);
+    const { subject, body, html } = renderTemplate(org, db);
 
     const testRecipients = getTestRecipients();
     const to = testRecipients ? testRecipients.join(", ") : org.email;
@@ -224,7 +224,7 @@ async function sendBatch(organisations, options = {}) {
       continue;
     }
 
-    const result = await sendEmail(org);
+    const result = await sendEmail(org, options.db);
     results.push({ id: org.id, email: org.email, ...result });
 
     if (result.success) {

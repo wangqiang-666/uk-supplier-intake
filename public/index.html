@@ -177,6 +177,29 @@
         <button class="btn btn-green" onclick="triggerAutoSend()">手动触发一次</button>
       </div>
     </div>
+
+    <!-- 邮件模板配置 -->
+    <div class="settings-section">
+      <h2>邮件模板</h2>
+      <div style="font-size:12px;color:#636e72;margin-bottom:10px;padding:8px 12px;background:#f1f2f6;border-radius:6px">
+        可用变量：<code>{{salutation}}</code> 称呼, <code>{{org_name}}</code> 机构名, <code>{{org_city}}</code> 城市, <code>{{org_postcode}}</code> 邮编, <code>{{work_areas}}</code> 业务领域, <code>{{from_name}}</code> 发件人名, <code>{{from_email}}</code> 发件人邮箱
+      </div>
+      <div id="tplMsg" class="msg-box"></div>
+      <div class="form-row"><label>邮件标题</label><input type="text" id="tplSubject" placeholder="邮件标题" style="width:100%" /></div>
+      <div class="form-row" style="flex-direction:column;align-items:stretch">
+        <label style="margin-bottom:6px">邮件正文</label>
+        <textarea id="tplBody" rows="16" style="width:100%;font-family:monospace;font-size:12px;padding:10px;border:1px solid #b2bec3;border-radius:6px;resize:vertical;line-height:1.5"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn btn-blue" onclick="saveEmailTemplate()">保存模板</button>
+        <button class="btn btn-green" onclick="previewEmailTemplate()">预览效果</button>
+      </div>
+      <div id="tplPreview" style="display:none;margin-top:14px;border:1px solid #dfe6e9;border-radius:8px;overflow:hidden">
+        <div style="background:#f1f2f6;padding:8px 12px;font-size:12px;font-weight:600;color:#636e72">预览（示例数据渲染）</div>
+        <div style="padding:6px 12px;font-size:13px;border-bottom:1px solid #f0f0f0"><b>Subject:</b> <span id="tplPreviewSubject"></span></div>
+        <div id="tplPreviewBody" style="padding:12px;font-size:13px;line-height:1.6;max-height:400px;overflow-y:auto"></div>
+      </div>
+    </div>
   </div>
 
   <div class="countdown-bar" id="countdownBar"></div>
@@ -942,11 +965,69 @@
       }
     }
 
+    // ──────── 邮件模板 ────────
+    async function loadEmailTemplate() {
+      try {
+        const res = await fetch("/api/settings/email-template");
+        const data = await res.json();
+        document.getElementById("tplSubject").value = data.subject || "";
+        document.getElementById("tplBody").value = data.body || "";
+      } catch (e) {
+        console.error("加载邮件模板失败:", e);
+      }
+    }
+
+    async function saveEmailTemplate() {
+      try {
+        const subject = document.getElementById("tplSubject").value.trim();
+        const body = document.getElementById("tplBody").value.trim();
+        if (!subject) return showMsg("tplMsg", "标题不能为空", "err");
+        if (!body) return showMsg("tplMsg", "正文不能为空", "err");
+        const res = await fetch("/api/settings/email-template", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, body }),
+        });
+        const data = await res.json();
+        if (data.error) return showMsg("tplMsg", data.error, "err");
+        showMsg("tplMsg", "模板已保存", "ok");
+        if (data.preview) showTemplatePreview(data.preview);
+      } catch (e) {
+        showMsg("tplMsg", "保存失败: " + e.message, "err");
+      }
+    }
+
+    async function previewEmailTemplate() {
+      try {
+        const subject = document.getElementById("tplSubject").value.trim();
+        const body = document.getElementById("tplBody").value.trim();
+        if (!subject || !body) return showMsg("tplMsg", "请先填写标题和正文", "err");
+        const res = await fetch("/api/settings/email-template", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, body }),
+        });
+        const data = await res.json();
+        if (data.error) return showMsg("tplMsg", data.error, "err");
+        showMsg("tplMsg", "模板已保存，预览如下", "ok");
+        if (data.preview) showTemplatePreview(data.preview);
+      } catch (e) {
+        showMsg("tplMsg", "预览失败: " + e.message, "err");
+      }
+    }
+
+    function showTemplatePreview(preview) {
+      document.getElementById("tplPreviewSubject").textContent = preview.subject;
+      document.getElementById("tplPreviewBody").innerHTML = preview.html;
+      document.getElementById("tplPreview").style.display = "block";
+    }
+
     (async function init() {
       await loadSources();
       await loadCountdown();
       await loadStats();
       await load();
+      loadEmailTemplate();
     })();
   </script>
 </body>

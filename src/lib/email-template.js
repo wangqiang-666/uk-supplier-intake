@@ -110,12 +110,13 @@ ${body}
 /**
  * 渲染邮件模板
  * @param {Object} org - organisation 数据库记录
+ * @param {Object} [db] - 数据库实例（传入时优先从 DB 读取模板）
  * @returns {{ subject: string, body: string, html: string }}
  */
-function renderTemplate(org) {
+function renderTemplate(org, db) {
   const vars = {
     org_name: org.name || "",
-    org_city: org.city || "",
+    org_city: org.city || "your area",
     org_postcode: org.postcode || "",
     org_source: org.source || "",
     salutation: extractSalutation(org.name),
@@ -124,8 +125,19 @@ function renderTemplate(org) {
     from_email: cfg.email.fromAddress || "",
   };
 
-  const template = loadTemplate();
-  const subjectTemplate = cfg.email.subject || DEFAULT_SUBJECT;
+  // 优先从数据库读取模板，降级到 env/内置默认
+  let subjectTemplate = cfg.email.subject || DEFAULT_SUBJECT;
+  let template = loadTemplate();
+
+  if (db) {
+    try {
+      const { getEmailTemplate } = require("./runtime-config");
+      const tpl = getEmailTemplate(db);
+      if (tpl.subject) subjectTemplate = tpl.subject;
+      if (tpl.body) template = tpl.body;
+    } catch (_) {}
+  }
+
   const body = replaceVars(template, vars);
 
   return {
