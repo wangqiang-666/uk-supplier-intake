@@ -103,6 +103,27 @@ function startScheduler() {
     }
   }, { timezone: "Europe/London" });
 
+  // 邮件周报 — 每周一 09:05 (Europe/London)，生成折线图推送到企业微信
+  const { runWeeklyReport } = require("./lib/weekly-report");
+  running.weeklyReport = false;
+
+  console.log("  - 邮件周报推送: 每周一 09:05 (Europe/London)");
+
+  cron.schedule("5 9 * * 1", async () => {
+    if (running.weeklyReport) {
+      console.log("[scheduler] 周报正在运行中，跳过本次");
+      return;
+    }
+    running.weeklyReport = true;
+    try {
+      await runWeeklyReport(db);
+    } catch (err) {
+      console.error("[scheduler] 周报生成失败:", err.message);
+    } finally {
+      running.weeklyReport = false;
+    }
+  }, { timezone: "Europe/London" });
+
   // 邮件回复检查 — 由 email-monitor.startImapMonitor() 管理（支持热重启）
   const { startImapMonitor } = require("./lib/email-monitor");
   const dbOps = { getMonitorState, setMonitorState, getReplyByMessageId, insertEmailReply, matchOrgByEmail, markOrgReplied };

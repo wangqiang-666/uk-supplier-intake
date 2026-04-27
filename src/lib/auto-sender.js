@@ -165,6 +165,20 @@ async function runAutoSend(db, options = {}) {
         // 保存 Resend Email ID
         if (result.messageId) {
           setOrganisationResendId(db, org.id, result.messageId);
+
+          // 记录本封邮件使用的主题（独立事件，失败不影响发送主流程）
+          // 用于周报按主题切分曲线；老数据无此事件归"未标注"
+          if (result.subject) {
+            try {
+              db.prepare(`
+                INSERT OR IGNORE INTO email_events
+                  (resend_email_id, organisation_id, event_type, event_data, created_at)
+                VALUES (?, ?, 'subject.recorded', ?, datetime('now'))
+              `).run(result.messageId, org.id, JSON.stringify({ subject: result.subject }));
+            } catch (e) {
+              console.warn(`[auto-sender] subject 事件写入失败（不影响发送）: ${e.message}`);
+            }
+          }
         }
 
         // 立即标记，避免中途失败丢失状态

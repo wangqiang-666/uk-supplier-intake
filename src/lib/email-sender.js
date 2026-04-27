@@ -206,7 +206,7 @@ async function sendEmail(org, db) {
       result = await sendViaSmtp(to, subject, body, { html });
     }
 
-    return { success: true, messageId: result.messageId, actualTo: to };
+    return { success: true, messageId: result.messageId, actualTo: to, subject };
   } catch (err) {
     return { success: false, error: err.message };
   }

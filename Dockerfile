@@ -36,8 +36,11 @@ COPY . .
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs /app/output
 
+# 确保启动脚本可执行
+RUN chmod +x /app/docker-entrypoint.sh
+
 # 暴露端口
 EXPOSE 3000
 
-# 启动命令：先启动 Xvfb 虚拟显示（Law Society 爬虫需要 headful 模式），再用 PM2 运行服务
-CMD Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp &>/dev/null & pm2-runtime start ecosystem.config.js
+# 启动命令：通过 entrypoint 脚本守护 Xvfb + 启动 PM2
+CMD ["/app/docker-entrypoint.sh"]

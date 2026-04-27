@@ -10,6 +10,58 @@ const BASE_URL = "https://solicitors.lawsociety.org.uk";
 const SEARCH_URL = `${BASE_URL}/search/results`;
 const STATE_FILE = path.join(__dirname, "../../data/lawsociety-state.json");
 
+// Law Society 2026-04 起对每个搜索 query 限制最多 5 页（~100 条）
+// 解决方案：把 query 切成 (area × city) 组合，每个组合是独立 query，各拿 5 页
+// 实测 city 维度有效（Location=Manchester + AreaOfPractice1=IMM → 152 条独立结果集）
+// 单组合命中率 30-60% 新数据，全队列轮一圈预计净增 1000-2000 条
+const AREA_CODES = [
+  "IMM", // Immigration - general
+  "IMG", // Immigration - general - legal aid
+  "IMN", // Immigration - nationality and citizenship
+  "PCP", // Private client - Probate
+  "PCW", // Private client - Wills
+  "PCT", // Private client - trusts
+  "PCI", // Private client - international
+  "PRP", // Private client - disputed probate
+  "PRT", // Private client - disputed trusts
+  "PRW", // Private client - disputed wills
+];
+
+// UK 主要城市（按律所密度排序），Location 参数留空表示全国
+// 全国 query 放第一位，能拿到 SRA 没覆盖的全国级头部律所
+const CITIES = [
+  "",            // 全国（不带 Location 参数）
+  "London",
+  "Manchester",
+  "Birmingham",
+  "Liverpool",
+  "Leeds",
+  "Glasgow",
+  "Edinburgh",
+  "Bristol",
+  "Sheffield",
+  "Newcastle",
+  "Cardiff",
+  "Belfast",
+  "Nottingham",
+  "Leicester",
+  "Coventry",
+  "Oxford",
+  "Cambridge",
+  "Brighton",
+  "Reading",
+  "Southampton",
+];
+
+// 生成 (area, city) 组合队列：area 外层、city 内层
+// 这样同一 area 连续抓不同城市，减少同一区域内重复
+const COMBINATIONS = [];
+for (const area of AREA_CODES) {
+  for (const city of CITIES) {
+    COMBINATIONS.push({ area, city });
+  }
+}
+
 /**
  * 每日爬取版本：支持代理 IP + 智能分页
  *
@@ -49,27 +101,42 @@ function saveState(state) {
   }
 }
 
-// 计算今天应该爬取的页段
+// 计算今天应该爬取的组合 (area × city) + 页段
+// 策略：每个组合爬 5 页后切到下一个组合，轮完所有组合再重头来（全队列 ~210 个组合）
 function calculatePageRange(pagesPerDay = 5) {
   const state = loadState();
   const today = new Date().toISOString().split("T")[0];
 
-  let startPage = state.lastPageStart;
-
-  // 如果是新的一天，继续从上次结束的地方开始
-  if (state.lastRunDate !== today) {
-    // 如果已经爬完一轮，重新开始
-    if (startPage > state.totalPages) {
-      startPage = 1;
-      console.log(`[Strategy] 已完成一轮爬取，重新开始`);
-    }
+  // 兼容旧 state：
+  //   - comboIndex 新字段：直接用
+  //   - 没有 comboIndex 但有 areaIndex：从老 areaIndex 映射到新队列的 area 起点
+  //   - 都没有：从 0 开始
+  let comboIndex;
+  if (typeof state.comboIndex === "number") {
+    comboIndex = state.comboIndex % COMBINATIONS.length;
+  } else if (typeof state.areaIndex === "number") {
+    // 老 state 迁移：areaIndex*N_CITIES 就是该 area 第一个 city 的组合位置
+    comboIndex = (state.areaIndex * CITIES.length) % COMBINATIONS.length;
+  } else {
+    comboIndex = 0;
   }
 
-  const endPage = Math.min(startPage + pagesPerDay - 1, state.totalPages);
+  let startPage = state.lastPageStart || 1;
 
-  console.log(`[Strategy] 今天爬取: 第 ${startPage}-${endPage} 页 (共 ${pagesPerDay} 页)`);
+  // 老数据可能记录到 lastPageStart>5，Law Society 硬限制重置
+  if (startPage > 5) {
+    startPage = 1;
+    comboIndex = (comboIndex + 1) % COMBINATIONS.length;
+  }
 
-  return { startPage, endPage, state, today };
+  const { area, city } = COMBINATIONS[comboIndex];
+  const maxPage = 5; // Law Society 硬上限
+  const endPage = Math.min(startPage + pagesPerDay - 1, maxPage);
+
+  const cityLabel = city || "全国";
+  console.log(`[Strategy] 今天爬取 ${area} × ${cityLabel} (组合 ${comboIndex + 1}/${COMBINATIONS.length}): 第 ${startPage}-${endPage} 页`);
+
+  return { startPage, endPage, state, today, area, city, comboIndex };
 }
 
 /**
@@ -86,12 +153,28 @@ async function searchSolicitorsDaily(options = {}) {
 
   console.log(`[Daily] 启动每日爬取...`);
 
-  // 计算今天要爬的页段
-  const { startPage, endPage, state, today } = calculatePageRange(pagesPerDay);
+  // 计算今天要爬的组合 + 页段
+  const { startPage, endPage, state, today, area, city, comboIndex } = calculatePageRange(pagesPerDay);
+
+  // 构造 query string：必带 AreaOfPractice1，可选 Location
+  const buildUrl = (pageNum) => {
+    const params = [`AreaOfPractice1=${area}`];
+    if (city) params.push(`Location=${encodeURIComponent(city)}`);
+    params.push(`Page=${pageNum}`);
+    return `${SEARCH_URL}?${params.join("&")}`;
+  };
 
   // 配置浏览器参数
+  // userDataDir: 持久化 Chrome profile（cookie/cache/fingerprint/fastoken）
+  // 让 reCAPTCHA Enterprise 在后续运行累积信任分，避免每次从 0 开始验证
+  const userDataDir = path.join(__dirname, "../../data/chrome-profile");
+  if (!fs.existsSync(userDataDir)) {
+    fs.mkdirSync(userDataDir, { recursive: true });
+    console.log(`[Daily] 初始化 Chrome profile 目录: ${userDataDir}`);
+  }
   const launchOptions = {
     headless,
+    userDataDir,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -113,10 +196,8 @@ async function searchSolicitorsDaily(options = {}) {
   const results = [];
 
   try {
-    // 直接跳转到起始页
-    const startUrl = startPage === 1
-      ? SEARCH_URL
-      : `${SEARCH_URL}?Page=${startPage}`;
+    // URL 必须带 AreaOfPractice1 参数；Location 可选，用来绕过 5 页硬限制
+    const startUrl = buildUrl(startPage);
 
     console.log(`[Daily] 访问起始页: 第 ${startPage} 页`);
     // =====================================================================
@@ -178,7 +259,7 @@ async function searchSolicitorsDaily(options = {}) {
 
       // 如果不是最后一页，翻页
       if (pageNum < endPage) {
-        const nextUrl = `${SEARCH_URL}?Page=${pageNum + 1}`;
+        const nextUrl = buildUrl(pageNum + 1);
         console.log(`[Daily] 跳转到第 ${pageNum + 1} 页...`);
         // 翻页同样不设 waitUntil，因为后续页也可能触发 reCAPTCHA 验证
         page.goto(nextUrl, { timeout: 0 }).catch(() => {});
@@ -198,8 +279,21 @@ async function searchSolicitorsDaily(options = {}) {
       }
     }
 
-    // 更新状态
-    state.lastPageStart = endPage + 1;
+    // 更新状态：翻完 5 页就切到下一个组合 (area × city)
+    let nextStart = endPage + 1;
+    let nextComboIndex = comboIndex;
+    if (nextStart > 5) {
+      nextStart = 1;
+      nextComboIndex = (comboIndex + 1) % COMBINATIONS.length;
+      const nextCombo = COMBINATIONS[nextComboIndex];
+      const cityLabel = city || "全国";
+      const nextCityLabel = nextCombo.city || "全国";
+      console.log(`[Daily] ${area} × ${cityLabel} 已抓完 5 页，下次切到 ${nextCombo.area} × ${nextCityLabel}`);
+    }
+    state.lastPageStart = nextStart;
+    state.comboIndex = nextComboIndex;
+    // 清掉旧字段防混淆
+    delete state.areaIndex;
     state.lastRunDate = today;
     saveState(state);
 
